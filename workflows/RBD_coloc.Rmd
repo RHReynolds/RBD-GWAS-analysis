@@ -878,6 +878,8 @@ harmonised_alleles %>%
 - Will need to think about how to present this, given that the colocalisations are at the same locus. Tissue/cell-type expression could give us an idea of whether an element of tissue-specific regulation may be at play.
 
 # References
+- eQTLGen: https://www.biorxiv.org/content/10.1101/447367v1
+- PsychENCODE: https://pubmed.ncbi.nlm.nih.gov/30545857/
 - Coloc v4.0: https://pubmed.ncbi.nlm.nih.gov/32310995/
 - Coloc wrapper functions: https://github.com/RHReynolds/colochelpR/ 
 

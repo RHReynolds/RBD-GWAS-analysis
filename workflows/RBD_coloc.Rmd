@@ -1,0 +1,887 @@
+---
+title: 'RBD: coloc'
+author: "Regina H. Reynolds"
+output: 
+  html_document:
+    code_folding: hide
+    theme: paper
+    highlight: kate
+    df_print: paged
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+
+library(coloc)          # Original coloc package, which is used to run coloc.abf() and sensitivity()
+library(colochelpR)     # Helper package with wrapper functions
+library(data.table)     # Loaded for fread(), which permits fast loading of files with many rows
+library(ggpubr)         # For formatting of plots
+library(MafDb.1Kgenomes.phase3.hs37d5) # Stores MAFs from the Phase 3 of the 1000 Genomes Project for the human genome version hs37d5.
+library(tidyverse)      # For tidy manipulation of data
+
+theme_rhr <-  theme_bw(base_family = "Helvetica") + 
+  theme(panel.grid.major.x = element_blank(),
+        legend.position = "right",
+        strip.text = element_text(size = 8),
+        strip.text.y = element_text(angle = 90),
+        axis.text.x = element_text(size = 8, angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(vjust = 0.6),
+        axis.title = element_text(size = 10),
+        panel.spacing = unit(0.1, "lines"))
+
+knitr::opts_chunk$set(echo = T, warning = F, message= F)
+```
+
+> Aim: determine whether RBD GWAS shares any common genetic causal variants with tissue-level eQTL datasets. If there are shared common genetic causal variants this will permit linking the variants within the GWAS locus to regulation of a gene's expression.
+
+# Formatting RBD GWAS
+- **Mapped to GRCh37.** This is advantageous, as most of our eQTL datasets are mapped to GRCh37.
+- In order to run coloc, we need the regression coefficient (`beta`) and standard error of the regression coefficient (`se`) or p-value and MAF.  We will be using `beta` and `se` (according to the original [coloc paper](https://journals.plos.org/plosgenetics/article?id=10.1371/journal.pgen.1004383), these are preferred over p-value and MAF).
+
+```{r tidy-GWAS, eval = F, class.source='fold-show'}
+
+source("/home/rreynolds/misc_projects/RBD-GWAS-analysis/R/tidy_GWAS.R")
+RBD <- fread("/data/LDScore/GWAS/RBD2020/RBD2020.txt")
+
+# Tidy RBD GWAS
+RBD_tidy <- 
+  RBD %>% 
+  tidy_GWAS() 
+
+# Get varbeta and check that the necessary columns for coloc are present and are the correct type (num, character)
+RBD_tidy_w_varbeta <- 
+  RBD_tidy %>%
+  colochelpR::get_varbeta() %>% 
+  colochelpR::check_coloc_data_format(beta_or_pval = "beta", check_maf = F)
+
+# Save and gzip output
+write_delim(RBD_tidy_w_varbeta, path = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta.txt", delim = "\t")
+R.utils::gzip(filename = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta.txt", 
+              destname = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta.txt.gz",
+              remove = T)
+```
+
+```{r n-duplicate-snps, echo = F}
+
+RBD_tidy_w_varbeta <- 
+  fread("/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta.txt.gz") %>% 
+  as_tibble()
+
+n_duplicates <- 
+  RBD_tidy_w_varbeta %>% 
+  dplyr::filter(duplicated(SNP) | duplicated(SNP, fromLast = TRUE)) %>% 
+  .[["SNP"]] %>% 
+  unique() %>% 
+  length()
+
+n_beta_zero <- 
+  RBD_tidy_w_varbeta %>% 
+  dplyr::filter(beta == 0) %>% 
+  .[["SNP"]] %>% 
+  unique() %>% 
+  length()
+
+```
+
+
+- Two steps in the tidying process are accounting:
+    1. Accounting for duplicates in terms of CHR:BP (these typically reflect multiallelic SNPs, although can also just be duplicates).
+        - There are `r n_duplicates` duplicated SNPs.
+        - Coloc cannot account for multiallelic SNPs. Two strategies to account for these duplicates are:
+            1. Choose the SNP with the highest MAF (argument here being that lower MAF SNPs will tend to have a lower imputation quality).
+            2. Choose the SNP with lowest p-value (i.e. most significant). GWAS summary stats will typically have been QC-ed for imputation quality, so this option is also okay.
+        - Here, we will be choosing the SNP with the highest MAF.
+    2. Removing any SNPs with `beta == 0`, as this produces NaNs in coloc output.
+        - There are `r n_beta_zero` SNPs with `beta == 0`.
+
+```{r rm-multiallelic, eval = F, class.source='fold-show'}
+
+# Deal with multiallelic SNPs
+# Find duplicates and choose by highest MAF
+duplicates_top_maf <-
+  RBD_tidy_w_varbeta %>% 
+  dplyr::filter(duplicated(SNP) | duplicated(SNP, fromLast = TRUE)) %>% 
+  dplyr::group_by(SNP) %>% 
+  dplyr::top_n(1, maf)
+
+# Remove any remaining duplicates which do not differentiate on beta/p-value and maf
+duplicates_top_maf <- 
+  duplicates_top_maf %>% 
+  dplyr::anti_join(duplicates_top_maf %>% 
+                              dplyr::filter(duplicated(SNP) | duplicated(SNP, fromLast = TRUE)))
+
+# Above steps results in removal of all duplicate SNPs 
+# That is all SNP duplicates are duplicates (and not multiallelic SNPs)
+nrow(duplicates_top_maf)
+
+# Thus simply use dplyr::distinct() to find all unique entries
+RBD_tidy_w_varbeta <-
+  RBD_tidy_w_varbeta %>% 
+  dplyr::distinct(across(everything()))
+
+# Finally omit any SNPs with beta = 0, as this produces NaNs in coloc output otherwise
+RBD_tidy_w_varbeta <-
+  RBD_tidy_w_varbeta %>% 
+  dplyr::filter(beta != 0)
+
+# Save tidied output
+write_delim(RBD_tidy_w_varbeta, path = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta_noduplicates.txt", delim = "\t")
+R.utils::gzip(filename = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta_noduplicates.txt", 
+              destname = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta_noduplicates.txt.gz",
+              remove = T)
+
+```
+
+- The output of this, which is now ready for use with coloc, is shown below (only significant hits shown).
+
+```{r show-tidy-GWAS, echo = F}
+
+RBD_tidy_w_varbeta <- 
+  fread("/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta_noduplicates.txt.gz") %>% 
+  as_tibble()
+
+# Significant hits
+RBD_tidy_w_varbeta %>% 
+  dplyr::filter(p.value < 5e-8)
+
+```
+
+- Once formatted, we need to extract all genes within +/- 1 Mb of all significant hits in the RBD GWAS.
+- This is done with the `colochelpR::get_genes_within_1Mb_of_signif_SNPs()` function. **Note that we use GRCh37 gene definitions from ensembl, as the RBD GWAS has been mapped to GRCh37.**
+
+```{r genes-to-investigate, eval = F, class.source='fold-show'}
+
+# Extract all genes within +/- 1Mb of significant RBD hits
+ensembl_gene_ids_overlapping_1Mb_window_hit <- 
+  RBD_tidy_w_varbeta %>% 
+  tidyr::separate(col = SNP, into = c("CHR", "BP"), sep = ":", remove = FALSE) %>% 
+  dplyr::mutate(CHR = as.integer(CHR),
+                BP = as.integer(BP)) %>% 
+  colochelpR::get_genes_within_1Mb_of_signif_SNPs(pvalue_column = "p.value",
+                                                  CHR_column = "CHR",
+                                                  BP_column = "BP",
+                                                  mart = 37)
+
+# Number of genes within +/- 1Mb of all significant hits in RBD GWAS
+ensembl_gene_ids_overlapping_1Mb_window_hit <-
+  tibble(ensembl_id = ensembl_gene_ids_overlapping_1Mb_window_hit) %>% 
+  colochelpR::biomart_df(.,
+                         columnToFilter = "ensembl_id", 
+                         attributes = c("ensembl_gene_id", "hgnc_symbol",
+                                        "chromosome_name", "start_position", "end_position"),
+                         filter = "ensembl_gene_id",
+                         mart = 37)
+
+saveRDS(ensembl_gene_ids_overlapping_1Mb_window_hit, 
+        "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/ensembl_gene_ids_overlapping_1Mb_window_hit.Rds")
+
+```
+
+```{r genes-to-investigate-table, echo = F}
+
+ensembl_gene_ids_overlapping_1Mb_window_hit <-
+  readRDS("/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/ensembl_gene_ids_overlapping_1Mb_window_hit.Rds")
+
+ensembl_gene_ids_overlapping_1Mb_window_hit %>% 
+  dplyr::arrange(chromosome_name, start_position, end_position) %>% 
+  DT::datatable(rownames = FALSE,
+                options = list(scrollX = TRUE),
+                class = 'white-space: nowrap')
+```
+
+
+# eQTL datasets used
+- [eQTLGen](https://www.biorxiv.org/content/10.1101/447367v1.full)
+    - 31,684 blood samples from 37 cohorts (assayed using 3 gene expression platforms)
+    - Data downloaded from: https://www.eqtlgen.org/cis-eqtls.html. Downloaded on 19/02/2020.
+- [Psychencode](https://www.ncbi.nlm.nih.gov/pubmed/30545857) 
+    - eQTL data derived from 1387 individuals (number is retrieved from FAQ section of psychencode resource: https://faq.gersteinlab.org/category/capstone4/page/1/; see post entitled: "Inquiry regarding PsychENCODE eQTL resource" from May 3, 2019). 
+    - Data downloaded from: http://resource.psychencode.org/. Downloaded on 20/02/2020.
+
+# Setting up coloc
+
+## Look-up of MAFs
+- Common to both of these eQTL datasets is that beta and se were not available i.e. had to use p-value and MAF instead.
+- MAFs were not available within the files, thus used a reference database to look up MAFs for SNPs within the eQTL datasets
+- This can be performed using the package `MafDb.1Kgenomes.phase3.hs37d5`, which contains MAFs for a number of populations. 
+```{r example-maf, class.source='fold-show'}
+
+mafdb <- MafDb.1Kgenomes.phase3.hs37d5
+populations(mafdb)
+
+```
+
+- For all look-ups performed, EUR_AF was used.
+```{r example-maf-lookup}
+
+example_df <- data.frame(rs_id = c("rs12921634", "rs1476958", "rs56189750"))
+
+# Example code
+mafs <- GenomicScores::gscores(x = mafdb, ranges = example_df$rs_id %>% as.character(), pop = "EUR_AF")
+mafs <- 
+  mafs %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column(var = "SNP") %>%
+  dplyr::rename(maf = EUR_AF) %>% 
+  dplyr::select(SNP, maf)
+
+example_df <- example_df %>% 
+  inner_join(mafs, by = c("rs_id" = "SNP"))
+
+```
+
+## eQTLGen
+- Following script was run by nohup: [`coloc_RBD_eQTLGen.R`](../scripts/coloc_RBD_eQTLGen.R)
+
+```{bash eqtlgen-nohup, eval = F, class.source='fold-show'}
+nohup Rscript /home/rreynolds/misc_projects/RBD-GWAS-analysis/scripts/coloc_RBD_eQTLGen.R &>/home/rreynolds/misc_projects/RBD-GWAS-analysis/logs/coloc_RBD_eQTLGen.log&
+
+```
+
+- Note that sample size changes for each eQTL, but for coloc it is not possible to set more than one sample size. Thus, chose the max. sample size within a set of eQTLs for a gene. Tested that this did not make a noticeable difference by using min and max values.
+
+## Psychencode
+- Full eQTL summary statistics provided did not have column names supplied. Therefore, was forced to look for these column names in alternative eQTL files they provided e.g. filtered for FDR < 0.05. 
+
+```{r psychencode-colnames}
+
+fread("/data/psychencode/DER-08a_hg19_eQTL.significant.txt") %>% 
+  colnames()
+
+```
+
+- From the file description provided by psychencode, we know that no p-value/FDR filtering had occurred, therefore would not expect an FDR column. This reduces the column names derived above to 14, which matches the number found in the full summary statistics.
+- Also did a sense check of the entries in each column to check that it matched with the expected column name.
+- Following script was run by nohup: [`coloc_RBD_psychencode.R`](../scripts/coloc_RBD_psychencode.R)
+
+```{bash psychencode-nohup, eval = F, class.source='fold-show'}
+nohup Rscript /home/rreynolds/misc_projects/RBD-GWAS-analysis/scripts/coloc_RBD_psychencode.R &>/home/rreynolds/misc_projects/RBD-GWAS-analysis/logs/coloc_RBD_psychencode.log&
+
+```
+
+- Despite providing regression slope, the SE of the regression slope is not provided, thus have to use p-value.
+- Ref and alternate alleles used in the eQTL analysis are provided in a separate file, thus require merging with the full summary statistics. This was done within the function `colochelpR::tidy_eQTL_psychencode()`.
+
+# Results
+
+## Interpreting coloc outputs
+- For methodological details, see [coloc paper](https://journals.plos.org/plosgenetics/article?id=10.1371/journal.pgen.1004383).
+- In brief, coloc calculates the posterior probability (PP) for 5 different hypotheses about association and genetic sharing in a region:
+    - H0: No association with either trait.
+    - H1: Association with trait 1, not with trait 2.
+    - H2: Association with trait 2, not with trait 1.
+    - H3: Association with trait 1 and 2, two independent SNPs.
+    - **H4: Association with trait 1 and trait 2, one shared SNP.**
+- H4 is the one we are most interested in. Visually, this is what the p-values should look in relation to the hypotheses 1-4 (H1-4):
+<br>
+![Alt text](https://journals.plos.org/plosgenetics/article/figure/image?size=large&id=10.1371/journal.pgen.1004383.g001){width=75%}
+- In order to calculate these posterior probabilities, coloc uses a Bayeseian framework. Thus, coloc requires the specification of three prior probabilities:
+    - p1: the prior probability that any random SNP in the region is associated with trait 1 [coloc default, 1e-04]
+    - p2: the prior probability that any random SNP in the region is associated with trait 2 [coloc default, 1e-04]
+    - p12: the prior probability that any random SNP in the region is associated with both traits [coloc default, 1e-05]
+- In her latest [coloc paper](https://journals.plos.org/plosgenetics/article?id=10.1371/journal.pgen.1008720#), Chris Wallace argues that the coloc default of p12 = 1e-05 may be overly liberal (particularly with smaller samples) and that p12 = 5e-06 may be a more generally robust choice. For this reason, analyses were run with "liberal" and "robust" p12 of 1e-05 and 5e-06, respectively.
+
+## Loading the results
+```{r load-results, eval = F}
+
+results_dir <- 
+  tibble(dir = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = T, pattern = ".rda") %>% 
+           str_replace(., "/[^/]*$", "") %>% 
+           str_replace(., "/[^/]*$", ""),
+         file_path = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = T, pattern = ".rda"),
+         file_name = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = F, pattern = ".rda") %>% 
+           str_replace(., ".rda", "")) %>% 
+  tidyr::separate(file_name, into = c("dataset", "prior_type", "gene"), sep = "/", remove = F)
+
+# Split into liberal/robust results
+dataset_dir <- setNames(results_dir %>% dplyr::group_split(prior_type),
+                        c(results_dir %>% .[["prior_type"]] %>% unique() %>% sort()))
+
+# Priors df
+priors_df <- tibble(prior_type = c("liberal", "robust"),
+                    p12 = c(1e-05, 5e-06))
+
+all_results <- setNames(vector(mode = "list", length = length(dataset_dir)),
+                        names(dataset_dir))
+                        
+for(i in 1:length(dataset_dir)){
+  
+  priors_df_filtered <- 
+    priors_df %>% 
+    dplyr::filter(prior_type == names(dataset_dir[i]))
+  
+  dataset_file_paths <- dataset_dir[[i]]
+  
+  dataset_names <- dataset_file_paths$dataset %>% unique()
+  
+  results_list <- vector(mode = "list", length = length(dataset_names))
+  
+  for(j in 1:length(dataset_names)){
+    
+    dataset <- dataset_names[j]
+    
+    print(dataset)
+    
+    dir_to_load <- 
+      dataset_file_paths %>% 
+      dplyr::filter(dataset == dataset_names[j]) %>% 
+      .[["dir"]] %>% 
+      unique()
+    
+    dir_to_load <- str_c(dir_to_load, "/", priors_df_filtered$prior_type)
+    
+    for(k in 1:length(dir_to_load)){
+      
+      print(dir_to_load[k])
+
+      if(dataset %in% c("eQTLGen", "psychencode")){
+        
+        results <- 
+          colochelpR::merge_coloc_summaries(dir_to_load[k], add_signif_SNP = F, recursive = T, pattern = ".rda") %>% 
+          dplyr::select(GWAS_1, gene_2, everything(), -eQTL_dataset_2)
+        
+      }
+      
+      results <- 
+        results %>% 
+        dplyr::mutate(dataset = dataset,
+                      p12 = priors_df_filtered$p12) %>% 
+        dplyr::select(GWAS_1, dataset, gene_2, everything())
+      
+      if(k == 1){
+        
+        results_list[[j]] <- results 
+        
+      } else{
+        
+        results_list[[j]] <- 
+          results_list[[j]] %>% 
+          dplyr::bind_rows(results)
+        
+      }
+      
+    }
+    
+  }
+  
+  all_results[[i]] <- results_list
+  
+}
+
+results <- 
+  all_results %>% 
+  lapply(., function(x){
+    
+    x %>% 
+      qdapTools::list_df2df() %>% 
+      biomart_df(columnToFilter = "gene_2",
+                 mart = 37,
+                 attributes = c("ensembl_gene_id", "hgnc_symbol"),
+                 filter = c("ensembl_gene_id")) %>% 
+      dplyr::select(GWAS_1, dataset, gene_2, hgnc_symbol, everything(), -X1)
+    
+  }) 
+
+saveRDS(results, file = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/coloc_summary.Rds")
+  
+```
+
+## Filtering by PP.H4 > 0.75 (i.e. colocalisation)
+- Typically, a PP.H4 > 0.75 is considered to be strong evidence of a shared SNP. 
+
+```{r filter-results, class.source='fold-show'}
+
+results <- readRDS("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/coloc_summary.Rds")
+
+coloc <- 
+  results %>% 
+  qdapTools::list_df2df(., col1 = "prior_type") %>% 
+  dplyr::mutate(hgnc_symbol = case_when(gene_2 == "ENSG00000247775" ~ "SNCA-AS1",
+                                        TRUE ~ hgnc_symbol)) %>%
+  dplyr::inner_join(results %>% 
+                      qdapTools::list_df2df(., col1 = "prior_type") %>% 
+                      dplyr::filter(prior_type == "liberal", PP.H4.abf >= 0.75) %>%
+                      dplyr::distinct(dataset, gene_2)) 
+
+coloc %>% 
+  dplyr::arrange(dataset, prior_type, hgnc_symbol) %>% 
+  dplyr::select(prior_type, p12, GWAS_1, dataset, gene_2, hgnc_symbol, everything()) %>% 
+  DT::datatable(rownames = FALSE,
+                options = list(scrollX = TRUE),
+                class = 'white-space: nowrap') 
+
+```
+
+- As we have run coloc with both liberal and robust p12 parameters, it is worth visualising the PP H4 for each of our colocalisations with respect to decision rules of H4 >= 0.75 and H4 >= 0.90.
+
+```{r robust-liberal-p12, fig.cap = "**Figure:** Plot of the posterior probability of H4 (association to both traits, shared causal variant) using a liberal and robust prior probability for any random SNP in the region of interest associating with both traits. Blue and red dashed lines indicate a posterior probability of H4 equal to 0.75 and 0.90, respectively. Liberal, p12 = 1e-05; robust, p12 = 5e-06."}
+
+coloc %>% 
+  ggplot(aes(x = hgnc_symbol, y = PP.H4.abf, alpha = prior_type)) + 
+  geom_col(position = position_dodge2(), colour = "black") +
+  geom_hline(yintercept = 0.75, linetype = "dashed", colour = "#63ACBE") +
+  geom_hline(yintercept = 0.9, linetype = "dashed", colour = "#EE442F") +
+  labs(x = "Gene", y = "Posterior probability of H4") +
+  facet_grid(cols = vars(dataset), scales = "free_x", space = "free_x") +
+  theme_rhr
+
+```
+
+- From this visualisation of PP H4 there are 2 hits that emerge as relatively robust colocalisations:
+    - MMRN1 from eQTLGen.
+    - SNCA-AS1 from pyschENCODE.
+- However, before concluding on these it is worth running sensitivity analyses on all hits, as well as visualising them.
+
+## eQTL/GWAS overlap for colocalisations and sensitivity analyses
+
+### eQTLGen
+
+- Coloc hits of interest, included:
+
+```{r eqtlgen-hits}
+# Extract coloc hits
+coloc_ens <- 
+  results %>% 
+  lapply(., function(x){x %>% 
+      dplyr::filter(PP.H4.abf > 0.75)}) %>% 
+  qdapTools::list_df2df() %>% 
+  dplyr::filter(dataset == "eQTLGen") %>% 
+  dplyr::distinct(hgnc_symbol, gene_2) %>% 
+  dplyr::arrange(hgnc_symbol)
+
+coloc_ens
+```
+
+- Below the following is plotted in each panel:
+    - On the left, Manhattan plots for trait 1 (GWAS; top) and trait 2 (eQTL; bottom). Shading of the point(s) indicates the posterior probabilities that a SNP is causal if H4 is true.
+    - On the right, prior and posterior probabilities for H0-H4 as a function of p12. Dashed vertical line indicates the value of p12 used in the intial analysis (i.e. p12 = 5e-06). The green region in these plots show the region - the set of values of p12 - for which H4 >= 0.75 would still be supported. Depending on the size of the green region, this gives us an idea of how robust the result is.
+
+```{r eqtlgen-sensitivity, fig.height = 4}
+
+# Loading relevant files
+results_dir <- 
+  tibble(dir = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = T, pattern = ".rda") %>% 
+           str_replace(., "/[^/]*$", "") %>% 
+           str_replace(., "/[^/]*$", ""),
+         file_path = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = T, pattern = ".rda"),
+         file_name = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = F, pattern = ".rda") %>% 
+           str_replace(., ".rda", "")) %>% 
+  tidyr::separate(file_name, into = c("dataset", "prior_type", "gene"), sep = "/", remove = F) %>%
+  dplyr::mutate(gene = str_split(gene, pattern = "_") %>% 
+                  lapply(., function(x) x[str_detect(x, "ENSG")]) %>% unlist())
+
+
+coloc_files <- 
+  results_dir %>% 
+  dplyr::inner_join(coloc_ens, by = c("gene" = "gene_2")) %>% 
+  dplyr::filter(prior_type == "robust", dataset == "eQTLGen") %>% 
+  dplyr::arrange(hgnc_symbol)
+
+coloc_list <- vector(mode = "list", length = nrow(coloc_files))
+
+for(i in 1:length(coloc_list)){
+  
+  load(as.character(coloc_files$file_path[i]))
+  
+  print(str_c(coloc_files$hgnc_symbol[i], " - ", coloc_files$gene[i]))
+  
+  coloc::sensitivity(coloc_results_annotated, "H4 >= 0.75", plot.manhattans = T)
+  
+}
+
+```
+
+- Colocalisations:
+    - MMRN1 (PP4 = `r results %>% qdapTools::list_df2df(., col1 = "prior_type") %>% dplyr::filter(hgnc_symbol == "MMRN1", dataset == "eQTLGen", prior_type == "robust") %>% .[["PP.H4.abf"]] %>% round(., digits = 3)`) 
+        - Looks like a convincing hit, in that p-value peaks are overlapping. 
+        - It is, however, worth noting that MMRN1 is a close neighbour of SNCA. A quick check for SNCA (see table below), however, shows that the prior probability of H4 (association with trait 1 and trait 2, one shared SNP) is very low, while the prior probability of H3 (association with trait 1 and trait 2, two independent SNPs) is very high (i.e > 99%). 
+            - To some extent, this is supported by plots of GWAS and eQTL p-values for shared SNPs (see figure below) in each gene:
+                1. At the MMRN1 locus, there are two association signals, which appear to be positively correlated, supporting the hypothesis that there is a colocalisation in the region.
+                2. At the SNCA locus, there appear to be two associations signals, but the correlation between shared SNPs is less apparent. While some shared SNPs are positively correlated, there is also a cluster of shared SNPs around the genome-wide significant mark for the eQTL dataset. Together with the high prior probability of H3, this would suggest that these are indeed independent associations and not a colocalisation.
+                
+```{r eqtlgen-snca}
+
+results %>% 
+  qdapTools::list_df2df(col1 = "prior_type") %>% 
+  dplyr::filter(dataset == "eQTLGen", hgnc_symbol == "SNCA")
+
+```
+
+```{r eqtlgen-overlaps, eval = F}
+
+# Extract overlaps between GWAS and eQTL datasets and join both datasets
+# Only do this for colocalisations of interest
+eQTL_path <- "/data/eQTLGen/2019-12-11-cis-eQTLsFDR-ProbeLevel-CohortInfoRemoved-BonferroniAdded.txt.gz"
+eQTL <- fread(eQTL_path)
+
+# Tidy eQTL data
+eQTL_tidy_filtered <- 
+  eQTL %>% 
+  dplyr::filter(Gene %in% c(coloc_ens$gene_2, "ENSG00000145335")) %>% 
+  colochelpR::tidy_eQTL_eQTLGen() %>% 
+  colochelpR::check_coloc_data_format(beta_or_pval = "pval", check_maf = F) %>% 
+  dplyr::distinct(gene, SNP, .keep_all = TRUE)
+
+# Find overlapping regions between GWAS and eQTLGen
+eQTL_RBD_GWAS_joined <- 
+  setNames(eQTL_tidy_filtered %>% 
+             group_split(gene),
+           eQTL_tidy_filtered %>% 
+             .[["gene"]] %>% 
+             unique() %>% 
+             sort()) %>% 
+  lapply(., function(eQTL_gene_df){
+    
+    colochelpR::join_coloc_datasets(df1 = RBD_tidy_w_varbeta %>% 
+                                      dplyr::filter(!duplicated(SNP)), 
+                                    df2 = eQTL_gene_df, 
+                                    harmonise = F)
+    
+  })
+
+# Save as Rds
+saveRDS(eQTL_RBD_GWAS_joined, "/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/eQTLGen/RBD_eQTLGen_overlap.Rds")
+
+```
+
+```{r eqtlgen-coloc-corr, eval = F, echo = F, fig.height = 6, fig.cap = "**Figure**: Scatter plot of GWAS and eQTL p-values in the regions surrounding MMRN1 and SNCA. Spearman's rho (R) and associated p-value (p) are displayed in the plot. Dashed lines indicated genome-wide significance."}
+
+eQTL_RBD_GWAS_joined <- readRDS("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/eQTLGen/RBD_eQTLGen_overlap.Rds")
+
+# Format data for plotting 
+eQTL_RBD_GWAS_to_plot <- 
+  eQTL_RBD_GWAS_joined %>% 
+  qdapTools::list_df2df() %>% 
+  dplyr::select(SNP, gene = gene_2, pvalue_gwas = p.value_1, pvalue_eqtl = p.value_2) %>% 
+  dplyr::inner_join(results$liberal %>% 
+                      dplyr::filter(dataset == "eQTLGen") %>% 
+                      dplyr::select(gene = gene_2, hgnc_symbol)) %>% 
+  tidyr::gather(key = "Dataset", value = "p.value", -SNP, -gene, -hgnc_symbol) %>% 
+  tidyr::separate(col = "SNP", into = c("chr", "pos")) %>% 
+  dplyr::mutate(pos_mb = as.numeric(pos)/1000000, 
+                p.value = as.numeric(p.value),
+                log_pval = -log10(p.value))
+
+# P-value correlations
+# Spread data for scatter plot 
+eQTL_RBD_GWAS_corr <- 
+  eQTL_RBD_GWAS_to_plot %>% 
+  dplyr::select(-p.value) %>% 
+  tidyr::spread(key = Dataset, value = log_pval) 
+  
+eQTL_RBD_GWAS_corr %>%   
+  dplyr::filter(gene %in% c(coloc_ens$gene_2, "ENSG00000145335")) %>% 
+  ggplot(aes(x = pvalue_eqtl, y = pvalue_gwas)) +
+  geom_point(size = 1, alpha = 0.5) +
+  geom_hline(yintercept = -log10(5*10^-8), linetype = "dashed") +
+  geom_vline(xintercept = -log10(5*10^-8), linetype = "dashed") +
+  ggpubr::stat_cor(method = "spearman", cor.coef.name = "rho", colour = "black", size = 4) +
+  facet_wrap(vars(hgnc_symbol), nrow = 2, scales = "free") +
+  labs(x = "-log10(eQTL p-value)", y = "-log10(GWAS p-value)") +
+  theme_pubr()
+
+```
+
+### Psychencode
+- Coloc hits of interest, included:
+
+```{r psychencode-hits}
+
+coloc_ens <- 
+  results %>% 
+  lapply(., function(x){x %>% 
+      dplyr::filter(PP.H4.abf > 0.75)}) %>% 
+  qdapTools::list_df2df() %>% 
+  dplyr::filter(dataset == "psychencode") %>% 
+  dplyr::distinct(hgnc_symbol, gene_2) %>% 
+  dplyr::mutate(hgnc_symbol = case_when(gene_2 == "ENSG00000247775" ~ "SNCA-AS1",
+                                        TRUE ~ hgnc_symbol)) %>% 
+  dplyr::arrange(hgnc_symbol)
+
+coloc_ens
+```
+
+- Below the following is plotted in each panel:
+    - On the left, Manhattan plots for trait 1 (GWAS; top) and trait 2 (eQTL; bottom). Shading of the point(s) indicates the posterior probabilities that a SNP is causal if H4 is true.
+    - On the right, prior and posterior probabilities for H0-H4 as a function of p12. Dashed vertical line indicates the value of p12 used in the intial analysis (i.e. p12 = 5e-06). The green region in these plots show the region - the set of values of p12 - for which H4 >= 0.75 would still be supported. Depending on the size of the green region, this gives us an idea of how robust the result is.
+
+```{r pyschencode-sensitivity, fig.height = 4}
+
+coloc_files <- 
+  results_dir %>% 
+  dplyr::inner_join(coloc_ens, by = c("gene" = "gene_2")) %>% 
+  dplyr::filter(prior_type == "robust", dataset == "psychencode") %>% 
+  dplyr::arrange(hgnc_symbol)
+
+coloc_list <- vector(mode = "list", length = nrow(coloc_files))
+
+for(i in 1:length(coloc_list)){
+  
+  load(as.character(coloc_files$file_path[i]))
+  
+  print(str_c(coloc_files$hgnc_symbol[i], " - ", coloc_files$gene[i]))
+  
+  coloc::sensitivity(coloc_results_annotated, "H4 >= 0.75", plot.manhattans = T)
+  
+}
+
+```
+
+- Colocalisations:
+    - DLG5 (PP4 = `r results %>% qdapTools::list_df2df(., col1 = "prior_type") %>% dplyr::filter(hgnc_symbol == "DLG5", dataset == "psychencode", prior_type == "robust") %>% .[["PP.H4.abf"]] %>% round(., digits = 3)`) 
+        - While the eQTL signal is clear, the GWAS signal is less so, with one central peak (which overlaps the DLG5 eQTL peak) surrounded by several smaller/slimmer peaks in the area.
+        - Would not consider this a strong colocalisation.
+    - SNCA-AS1 (PP4 = `r results %>% qdapTools::list_df2df(., col1 = "prior_type") %>% dplyr::filter(gene_2 == "ENSG00000247775", dataset == "psychencode", prior_type == "robust") %>% .[["PP.H4.abf"]] %>% round(., digits = 3)`) 
+        - Strong overlap that also appears to be relatively robust to choice of p12 prior.
+        - Worth noting that SNCA-AS1 is a close neighbour of SNCA and MMRN1. A quick check was performed for both genes (see table below). Both have a prior probability of H4 (association with trait 1 and trait 2, one shared SNP) that is very low. 
+        - Furthermore, when plotting GWAS and eQTL p-values for shared SNPs (see figure below), it is clear that:
+            1. There are two independent association signals at the MMRN1 locus. 
+            2. There only appears to be an assoication with the RBD GWAS at the SNCA locus. 
+            3. There are two association signals at the SNCA-AS1 locus, which appear to be positively correlated, supporting the hypothesis that there is a colocalisation in the region.
+        
+```{r psychencode-snca-mmrn}
+
+results %>% 
+  qdapTools::list_df2df(col1 = "prior_type") %>% 
+  dplyr::filter(dataset == "psychencode", hgnc_symbol %in% c("MMRN1", "SNCA"))
+
+```
+```{r psychencode-overlaps, eval = F}
+
+# Extract overlaps between GWAS and eQTL datasets and join both datasets
+eQTL_path <- "/data/psychencode/Full_hg19_cis-eQTL.txt.gz"
+eQTL <- fread(eQTL_path)
+SNP_info <- fread("/data/psychencode/SNP_Information_Table_with_Alleles.txt")
+
+# Assign column names using another psychencode-derived file
+colnames(eQTL) <- colnames(fread("/data/psychencode/DER-08a_hg19_eQTL.significant.txt"))[!str_detect(colnames(fread("/data/psychencode/DER-08a_hg19_eQTL.significant.txt")), "FDR")]
+
+# Filter eQTLs for gene, tidy eQTLs
+eQTL_tidy_filtered <- 
+  eQTL %>% 
+  colochelpR::tidy_eQTL_psychencode(., psychencode_SNP_info = SNP_info, add_colnames = F) %>% 
+  dplyr::filter(gene %in% c(coloc_ens$gene_2, "ENSG00000145335", "ENSG00000138722")) %>% 
+  colochelpR::check_coloc_data_format(beta_or_pval = "pval", check_maf = F) %>% 
+  dplyr::distinct(gene, SNP, .keep_all = TRUE)
+
+# Find overlapping regions between GWAS and eQTLGen
+eQTL_RBD_GWAS_joined <- 
+  setNames(eQTL_tidy_filtered %>% 
+             group_split(gene),
+           eQTL_tidy_filtered %>% 
+             .[["gene"]] %>% 
+             unique() %>% 
+             sort()) %>% 
+  lapply(., function(eQTL_gene_df){
+    
+    colochelpR::join_coloc_datasets(df1 = RBD_tidy_w_varbeta %>% 
+                                      dplyr::filter(!duplicated(SNP)), 
+                                    df2 = eQTL_gene_df, 
+                                    harmonise = F)
+    
+  })
+
+# Save as Rds
+saveRDS(eQTL_RBD_GWAS_joined, "/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/psychencode/RBD_psychencode_overlap.Rds")
+
+```
+
+```{r psychencode-coloc-corr, fig.height = 6, fig.cap = "**Figure**: Scatter plot of GWAS and eQTL p-values in the regions surrounding MMRN1 and SNCA. Spearman's rho (R) and associated p-value (p) are displayed in the plot. Dashed lines indicate genome-wide significance."}
+
+# Shared SNPs between GWAS/eQTL
+eQTL_RBD_GWAS_joined <- readRDS("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/psychencode/RBD_psychencode_overlap.Rds")
+
+# Format data for plotting 
+eQTL_RBD_GWAS_to_plot <- 
+  eQTL_RBD_GWAS_joined %>% 
+  qdapTools::list_df2df() %>% 
+  dplyr::select(SNP, gene = gene_2, pvalue_gwas = p.value_1, pvalue_eqtl = p.value_2) %>% 
+  dplyr::inner_join(results$liberal %>% 
+                      dplyr::filter(dataset == "psychencode") %>% 
+                      dplyr::select(gene = gene_2, hgnc_symbol)) %>% 
+  tidyr::gather(key = "Dataset", value = "p.value", -SNP, -gene, -hgnc_symbol) %>% 
+  tidyr::separate(col = "SNP", into = c("chr", "pos")) %>% 
+  dplyr::mutate(pos_mb = as.numeric(pos)/1000000, 
+                p.value = as.numeric(p.value),
+                log_pval = -log10(p.value),
+                hgnc_symbol = case_when(gene == "ENSG00000247775" ~ "SNCA-AS1",
+                                        TRUE ~ hgnc_symbol))
+
+# Spread data for scatter plot 
+eQTL_RBD_GWAS_corr <- 
+  eQTL_RBD_GWAS_to_plot %>% 
+  dplyr::select(-p.value) %>% 
+  tidyr::spread(key = Dataset, value = log_pval) 
+  
+eQTL_RBD_GWAS_corr %>%   
+  dplyr::filter(gene %in% c("ENSG00000145335", "ENSG00000138722", "ENSG00000247775")) %>% 
+  ggplot(aes(x = pvalue_eqtl, y = pvalue_gwas)) +
+  geom_point(size = 1, alpha = 0.5) +
+  geom_hline(yintercept = -log10(5*10^-8), linetype = "dashed") +
+  geom_vline(xintercept = -log10(5*10^-8), linetype = "dashed") +
+  ggpubr::stat_cor(method = "spearman", cor.coef.name = "rho", colour = "black", size = 4) +
+  facet_wrap(vars(hgnc_symbol), nrow = 2, scales = "free") +
+  labs(x = "-log10(eQTL p-value)", y = "-log10(GWAS p-value)") +
+  theme_pubr()
+
+```
+
+## eQTL/GWAS directionality
+
+As we have betas for both the GWAS and the Psychencode dataset, we can make some initial attempt to determine what the direction of effect at the locus might be. 
+
+### Determining directionality in each dataset
+- We know from the GWAS that the effect allele is column A1, which was set to Al1 (allele 1) in the coloc analysis.
+- We are a little more unclear on psychENCODE directionality. No mention of directionality in the paper. Authors do mention that they follow the GTEx eQTL pipeline.
+- Check FUMA output for PSP progression, where for PsychENCODE result in figure below, tested allele appears to be C.
+
+![](./PSP_FUMA.png)
+
+- If we interrogate this particular SNP in the SNP info provided by PsychENCODE, we see that C is the ALT allele. 
+
+```{r load-snp-info}
+
+SNP_info <- fread("/data/psychencode/SNP_Information_Table_with_Alleles.txt")
+
+SNP_info %>% dplyr::filter(PEC_id == "16:11417802")
+
+```
+
+- Thus, the beta of a PsychENCODE eQTL is equivalent to the effect of the alternative allele (ALT) relative to the reference allele (REF). 
+
+### Integrating betas across both datasets
+- Let's now run a check to see whether the effect/alternate alleles are the same between the datasets.
+    - If they are, column `same_effect_and_alt_allele` will be assigned the value TRUE.
+    - If not, a value of FALSE will be assigned.
+- We can then count how many TRUE/FALSE we have.
+
+```{r directionality-check}
+
+directionality_check <- 
+  RBD_tidy_w_varbeta %>% 
+  dplyr::select(SNP, Al1, Al2) %>% 
+  dplyr::filter(SNP %in% eQTL_RBD_GWAS_joined$ENSG00000247775$SNP) %>% 
+  dplyr::inner_join(SNP_info %>% 
+                      dplyr::filter(PEC_id %in% eQTL_RBD_GWAS_joined$ENSG00000247775$SNP) %>% 
+                      dplyr::select(SNP = PEC_id, psychencode_ALT = ALT, psychencode_REF = REF)) %>% 
+  dplyr::mutate(same_effect_and_alt_allele = case_when(Al1 == psychencode_ALT & Al2 == psychencode_REF ~ TRUE,
+                                               TRUE ~ FALSE))
+
+directionality_check %>% 
+  dplyr::group_by(same_effect_and_alt_allele) %>% 
+  dplyr::count()
+
+```
+
+- For those cases where a value of FALSE has been assigned, the most likely is that the two alleles are simply swapped between the two datasets. Let's check if this is the case. 
+- Make a new column `effect_and_alt_swapped`:
+    - If they are swapped, value of TRUE assigned.
+    - If not, value of FALSE assigned.
+- We can then count how many TRUE/FALSE we have.
+
+```{r snps-to-harmonise}
+
+directionality_check <- 
+  directionality_check %>% 
+  dplyr::mutate(effect_and_alt_swapped = case_when(same_effect_and_alt_allele == FALSE & Al1 == psychencode_REF & Al2 == psychencode_ALT ~ TRUE,
+                                                   TRUE ~ FALSE)) 
+
+directionality_check %>% 
+  dplyr::filter(same_effect_and_alt_allele == FALSE) %>% 
+  dplyr::group_by(effect_and_alt_swapped) %>% 
+  dplyr::count()
+
+SNPs_to_exclude <- directionality_check %>%
+                             dplyr::filter(same_effect_and_alt_allele == FALSE, effect_and_alt_swapped == FALSE) %>%
+                             .[["SNP"]]
+
+SNPs_to_swap <- directionality_check %>% 
+                             dplyr::filter(same_effect_and_alt_allele == FALSE, effect_and_alt_swapped == TRUE) %>% 
+                             .[["SNP"]]
+
+```
+
+- For the SNPs that have been swapped, we can change the beta of the eQTL analysis, such that it is in reference to the same allele as the GWAS.
+
+### Plot of betas across harmonised alleles
+```{r top-snp-harmonised, fig.cap = "**Figure**: Scatter plot of beta vs -log10(p-value) in eQTL and GWAS datasets. Top GWAS SNP is highlighted with a red fill in both datasets."}
+
+harmonised_alleles <- 
+  eQTL_RBD_GWAS_joined$ENSG00000247775 %>% 
+  dplyr::filter(!SNP %in% SNPs_to_exclude) %>% 
+  dplyr::mutate(beta_2 = case_when(SNP %in% SNPs_to_swap ~ (-beta_2),
+                                     TRUE ~ beta_2),
+                Al1_2 = case_when(SNP %in% SNPs_to_swap ~ Al1_1,
+                                     TRUE ~ Al1_2),
+                Al2_2 = case_when(SNP %in% SNPs_to_swap ~ Al2_1,
+                                     TRUE ~ Al2_2))
+
+data_to_plot <- 
+  harmonised_alleles %>% 
+  tidyr::gather(key = "statistic", value = "value", beta_1, p.value_1, beta_2, p.value_2) %>% 
+  dplyr::select(SNP, statistic, value) %>% 
+  dplyr::mutate(dataset = case_when(str_detect(statistic, "_1") ~ "RBD GWAS",
+                                    str_detect(statistic, "_2") ~ "PsychENCODE eQTL"),
+                statistic = str_replace(statistic, "_.*", "")) %>% 
+  tidyr::spread(key = statistic, value = value) %>% 
+  dplyr::mutate(significant_GWAS_SNP = case_when(SNP == "4:90755909" ~ TRUE,
+                                                 TRUE ~ FALSE)) 
+
+# saveRDS(data_to_plot, "/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/psychencode/RBD_SNCAAS1_beta_harmonised.Rds")
+
+data_to_plot %>% 
+  ggplot(aes(x = beta, y = -log10(p.value))) + 
+  geom_point(data = subset(data_to_plot, significant_GWAS_SNP == FALSE), colour = "#888888",
+             alpha = 0.5) + 
+  geom_point(data = subset(data_to_plot, significant_GWAS_SNP == TRUE), size = 2, colour = "#EE442F",
+             alpha = 1) +
+  geom_hline(yintercept = -log10(5*10^-8), linetype = "dashed") + 
+  facet_wrap(~ dataset) +
+  labs(x = "beta", y = "-log10(p-value)") +
+  theme_pubr()
+
+```
+
+- From the plot above, it is clear that beta for the top GWAS SNP has the opposite direction of effect in Psychencode. 
+- However, we cannot be sure that the top GWAS SNP is the causal SNP. Furthermore, it is not possible, to conclude whether the general trend is one of negative/inverse correlation in the colocalised region. To do this, we must plot the betas against each other.
+
+```{r scatterplot-harmonised, fig.cap = "**Figure:** Plot of beta coefficients in RBD GWAS and PsychENCODE for shared SNPs. Shared SNPs that are genome-wide significant in either the LBD GWAS or in Psychencode are highlighted with a red fill. The black line represents a linear model fitted for the two beta variables, with the 99% confidence interval indicated with a red fill."}
+
+harmonised_alleles %>% 
+  dplyr::mutate(genome_wide_signif = case_when(p.value_1 < 5e-8 | p.value_2 < 5e-8 ~ TRUE,
+                                               TRUE ~ FALSE)) %>% 
+  tidyr::gather(key = "statistic", value = "value", beta_1, p.value_1, beta_2, p.value_2) %>% 
+  dplyr::select(SNP, statistic, value, genome_wide_signif) %>% 
+  dplyr::mutate(dataset = case_when(str_detect(statistic, "_1") ~ "RBD GWAS",
+                                    str_detect(statistic, "_2") ~ "PsychENCODE eQTL"),
+                statistic = str_replace(statistic, "_.*", "")) %>% 
+  dplyr::filter(statistic == "beta") %>% 
+  dplyr::select(-statistic) %>% 
+  tidyr::spread(key = "dataset", value = "value") %>% 
+  ggplot(aes(x = `PsychENCODE eQTL`, y = `RBD GWAS`)) +
+  geom_point(aes(colour = genome_wide_signif), alpha = 0.5) +
+  # geom_density2d(colour = "black", alpha = 0.8) +
+  geom_smooth(method = "lm", level = 0.99, colour = "black", fill = "#EE442F") +
+  labs(x = "beta - pscyhENCODE eQTL", y = "beta - RBD") +
+  scale_colour_manual(values = c("#888888", "#EE442F")) +
+  theme_pubr()
+  
+```
+
+- The scatter plot would appear to indicate that there is an inverse relationship between betas in the RBD GWAS and Pscyhencode i.e. increased risk of RBD is associated with decreased expression of SNCA-AS1.
+
+# Conclusions
+- Based on the above, those hits that look most promising include: MMRN1 from eQTLGen and SNCA-AS1 from psychENCODE. Using the same datasets, these were both coloc hits in the LBD GWAS (MMRN1, eQTLGen, PPH4 = 0.832; SNCA-AS1, psychencode, PPH4 = 0.956; both using p12 = 5e-6).
+- Will need to think about how to present this, given that the colocalisations are at the same locus. Tissue/cell-type expression could give us an idea of whether an element of tissue-specific regulation may be at play.
+
+# References
+- Coloc v4.0: https://pubmed.ncbi.nlm.nih.gov/32310995/
+
+# Session Info
+```{r}
+sessionInfo()
+```
+

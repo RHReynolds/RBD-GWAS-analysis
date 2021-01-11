@@ -1,0 +1,178 @@
+---
+title: "Cell-type and tissue specificity"
+author: "Regina H. Reynolds"
+output: 
+  html_document:
+    code_folding: hide
+    theme: paper
+    highlight: kate
+    df_print: paged
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+
+library(data.table)
+library(devtools)
+library(ggpubr)
+library(tidyverse)
+devtools::load_all("/home/rreynolds/projects/MarkerGenes/")
+
+theme_rhr <-  theme_bw(base_family = "Helvetica") + 
+  theme(panel.grid.major.x = element_blank(),
+        legend.position = "right",
+        strip.text = element_text(size = 8),
+        strip.text.y = element_text(angle = 90),
+        axis.text.x = element_text(size = 8, angle = 90, hjust = 1, vjust = 0.5),
+        axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(vjust = 0.6),
+        axis.title = element_text(size = 10),
+        panel.spacing = unit(0.1, "lines"))
+
+knitr::opts_chunk$set(echo = T, warning = F, message= F)
+```
+
+> Aim: check tissue and cell-type specificity of the colocalisations with PP H4 >= 0.75 when using p12 = 5e-6 i.e. MMRN1 and SNCA-AS1.
+
+All external datasets used available at: https://github.com/RHReynolds/MarkerGenes
+
+# Definition of specificity
+- The proportion of a gene's expression that can be attributed to one cell type or tissue within a dataset of cell types/tissues. Values range from 0 to 1, with 0 indicating a gene is not expressed at all in a cell type/tissue and 1 indicating a gene is only expressed in that cell type. If the expression of a gene is shared between two or more cell types, it will get a lower specificity measure.
+- Specificity is calculated per dataset.
+
+# Tissue specificity
+- Genes to investigate: 
+```{r}
+genes <- c("MMRN1", "SNCA-AS1")
+
+genes
+```
+
+- Tissue specificity derived from GTEx v8. 
+- All tissues, apart from brain, were collapsed to an organ level.
+- Also, tissues were excluded on the following criteria: 
+    - Less than 100 samples used. 
+    - Gene expression outlier e.g. testis
+    - Non-natural tissue e.g. EBV-transformed lymphocytes and cultured fibroblasts. 
+    - Brain cortex and Brain cerebellum (using instead the more specific anterior cingulate cortex, frontal cortex and cerebellar hemisphere) to reduce redundancy across brain regions.
+    
+```{r gtex-specificity, fig.height = 12, fig.cap="**Figure**: Specificity of MMRN1 and SNCA-AS1 in GTEx v8 tissues."}
+
+# Load specificity 
+gtex <- readRDS("/home/rreynolds/projects/MarkerGenes/specificity_df/GTEx_v8.Rds")
+
+# Plot specificity
+gtex %>% 
+  dplyr::filter(Description %in% genes) %>% 
+  dplyr::mutate(brain = case_when(str_detect(Organ, "Brain") ~ TRUE,
+                                  TRUE ~ FALSE)) %>% 
+  ggplot(aes(x = MarkerGenes::reorder_within(x = Organ,
+                                             by = specificity,
+                                             within = Description,
+                                             fun = median,
+                                             desc = TRUE),
+             y = specificity,
+             fill = brain)
+  ) +
+  geom_col() +
+  MarkerGenes::scale_x_reordered() +
+  facet_wrap(vars(Description), scales = "free_x", nrow = 3) +
+  labs(x = "Tissue", y = "Specificity", title = "") +
+  # scale_y_continuous(limits = c(0,1)) +
+  scale_fill_manual(values = c("#888888", "#00BFC4")) +
+  theme_rhr
+
+```
+
+- MMRN1 is most specific to the thyroid, followed by adipose tissue and lung. 
+    - Not much appears to be known about MMRN1 function. 
+    - It has primarily been described as a component of secretory granules found in megakaryocytes, endothelial cells (ECs). In addition, some suggestion that it may mediate cellular adhesion via integrin receptors (https://pubmed.ncbi.nlm.nih.gov/22566882/).
+    - N.B. Megakaryocytes derived from the same common myeloid progenitor as microglia (https://www.nature.com/articles/nature09615).
+- SNCA-AS1 appears to be quite specific to brain tissues, in general. Notably, there appear to be a number of tissues in which it is not expressed e.g. blood vessels, adrenal gland, heart, liver, etc.
+
+# Cell-type specificity
+- Cell-type specificity derived from a number of external datasets. All are based on single-nucleus RNA-sequencing. Notably, the AIBS dataset useds SMART-seq library construction (i.e. full-length sequencing of transcripts, as opposed to just 3'-end).
+
+```{r load-snrna-specificity}
+
+# Load specificity matrices
+load("/home/rreynolds/projects/MarkerGenes/specificity_matrices/AIBS2018_MTG.rda")
+load("/home/rreynolds/projects/MarkerGenes/specificity_matrices/Habib2017_DroNc_Human.rda")
+load("/home/rreynolds/projects/MarkerGenes/specificity_matrices/Agarwal2020_CRTX.rda")
+load("/home/rreynolds/projects/MarkerGenes/specificity_matrices/Agarwal2020_SNIG.rda")
+load("/home/rreynolds/projects/MarkerGenes/specificity_matrices/Lake2018_FrontalCortexOnly.rda")
+
+specificity <- 
+  MarkerGenes::query_gene_ctd(genes = genes,
+                              ctd_AIBS2018, ctd_DRONC_human, ctd_Agarwal2020_CRTX, ctd_Agarwal2020_SNIG, ctd_BlueLake2018_FrontalCortexOnly,
+                              celltypeLevel = 1, 
+                              median_included = F,
+                              genelistSpecies = "human", 
+                              ctdSpecies = "human")
+
+specificity %>% 
+  dplyr::distinct(Gene, Study) %>% 
+  dplyr::arrange(Gene)
+
+```
+
+- Worth noting that SNCA-AS1 is only found in two human brain datasets:
+    1. [ctd_AIBS2018](https://portal.brain-map.org/atlases-and-data/rnaseq/human-mtg-smart-seq): dataset includes single-nucleus transcriptomes from 15,928 nuclei derived from both frozen and neurosurgical human brain specimens, to survey cell type diversity in the human middle temporal gyrus (MTG). Nuclei from 8 human tissue donors ranging in age from 24-66 years were analyzed, revealing 75 transcriptionally distinct cell types: 45 inhibitory neuron types, 24 excitatory neuron types, and 6 non-neuronal types.  
+    2. [ctd_Agarwal2020_SNIG](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7442652/): dataset includes single-nucleus transcriptomes from 5943 nuclei derived from the substantia nigra of five human postmortem brains. Sequenced using the 10x Genomics Chromium platform.
+- Thus, will plot MMRN1 and SNCA-AS1 specificity from these datasets.
+
+```{r cell-type-specificity, fig.height = 6, class.source = "fold-show", fig.cap = "**Figure**: Plot of gene specificity value for MMRN1 and SNCA-AS1 across external RNA-seq datasets. DaNs = dopaminergic neurons; GABA=GABAergic interneurons, ODC=oligodendrocytes, OPC=oligodendrocyte precursor cells."}
+
+# Plot
+specificity %>% 
+  dplyr::filter(Study %in% c("ctd_Agarwal2020_SNIG", "ctd_AIBS2018")) %>%
+  ggplot(aes(x = MarkerGenes::reorder_within(x = CellType, 
+                                             by = Specificity, 
+                                             within = Gene, 
+                                             fun = median, 
+                                             desc = T), 
+             y = Specificity)) + 
+  geom_col() +
+  MarkerGenes::scale_x_reordered() +
+  facet_wrap(vars(Study, Gene), scales = "free_x") + 
+  labs(x = "") +
+  coord_cartesian(ylim = c(0,1)) +
+  theme_rhr
+
+```
+
+- MMRN1 is most specific to microglia in both datasets used; SNCA-AS1 appears highly neuron-specific.
+- It is worth noting that the expression profiles of MMRN1 and SNCA-AS1 are very different in that MMRN1 has a much higher mean expression than SNCA-AS1. 
+- Also worth noting (as it is difficult to see from the plot) that MMRN1 is actually detected in all cell types except endothelial cells in the AIBS dataset. This is not the case for SNCA-AS1 where no expression is detected in several cell types in both datasets -- hard to say whether this is due to biology (i.e. cell-type-specific expression) or a technical artefact (i.e. gene dropout).
+
+```{r cell-type-mean-expr, fig.height = 6, fig.cap = "**Figure**: Plot of mean expression for MMRN1 and SNCA-AS1 across external RNA-seq datasets. Mean expression has been ordered by specificity, as in the previous plot to permit easier comparison. DaNs = dopaminergic neurons; GABA=GABAergic interneurons, ODC=oligodendrocytes, OPC=oligodendrocyte precursor cells."}
+
+# Plot
+specificity %>% 
+  dplyr::filter(Study %in% c("ctd_Agarwal2020_SNIG", "ctd_AIBS2018")) %>%
+  ggplot(aes(x = MarkerGenes::reorder_within(x = CellType, 
+                                             by = Specificity, 
+                                             within = Gene, 
+                                             fun = median, 
+                                             desc = T), 
+             y = Mean_Expression)) + 
+  geom_col() +
+  MarkerGenes::scale_x_reordered() +
+  facet_wrap(vars(Study, Gene), scales = "free") + 
+  labs(x = "", y = "Mean expression") +
+  theme_rhr
+
+```
+
+```{r specificity-table}
+specificity %>% 
+  dplyr::filter(Study %in% c("ctd_Agarwal2020_SNIG", "ctd_AIBS2018")) %>% 
+  dplyr::arrange(Gene, Study, -Specificity)
+```
+
+# Session Info
+```{r}
+sessionInfo()
+```

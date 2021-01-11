@@ -1,2 +1,2 @@
 # RBD-GWAS-analysis
-Analyses (primarily coloc) for LBD GWAS.
+Analyses (primarily coloc) for RBD GWAS.

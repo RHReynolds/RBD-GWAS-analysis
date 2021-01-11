@@ -879,6 +879,7 @@ harmonised_alleles %>%
 
 # References
 - Coloc v4.0: https://pubmed.ncbi.nlm.nih.gov/32310995/
+- Coloc wrapper functions: https://github.com/RHReynolds/colochelpR/ 
 
 # Session Info
 ```{r}

@@ -1,0 +1,27 @@
+---
+title: "Manuscript figures"
+author: "Regina H. Reynolds"
+output: 
+  html_document:
+    code_folding: show
+    theme: paper
+    highlight: kate
+    df_print: paged
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+
+```{r setup, echo = T, result = F, message = F}
+
+library(cowplot)          # For alignment of plots using axes
+library(DT)               # R interface to the JavaScript library DataTables
+library(ggpubr)           # For arranging plots in one panel
+library(readxl)           # For loading excel workbooks
+library(tidyverse)        # For data manipulation
+library(stringr)          # For string manipulation
+library(qdapTools)        # For list manipulation
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```

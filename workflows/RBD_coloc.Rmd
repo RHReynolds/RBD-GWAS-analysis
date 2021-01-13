@@ -547,7 +547,7 @@ saveRDS(eQTL_RBD_GWAS_joined, "/home/rreynolds/misc_projects/RBD-GWAS-analysis/r
 
 ```
 
-```{r eqtlgen-coloc-corr, eval = F, echo = F, fig.height = 6, fig.cap = "**Figure**: Scatter plot of GWAS and eQTL p-values in the regions surrounding MMRN1 and SNCA. Spearman's rho (R) and associated p-value (p) are displayed in the plot. Dashed lines indicated genome-wide significance."}
+```{r eqtlgen-coloc-corr, fig.height = 6, fig.cap = "**Figure**: Scatter plot of GWAS and eQTL p-values in the regions surrounding MMRN1 and SNCA. Spearman's rho (R) and associated p-value (p) are displayed in the plot. Dashed lines indicated genome-wide significance."}
 
 eQTL_RBD_GWAS_joined <- readRDS("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/eQTLGen/RBD_eQTLGen_overlap.Rds")
 
@@ -689,7 +689,7 @@ saveRDS(eQTL_RBD_GWAS_joined, "/home/rreynolds/misc_projects/RBD-GWAS-analysis/r
 
 ```
 
-```{r psychencode-coloc-corr, fig.height = 6, fig.cap = "**Figure**: Scatter plot of GWAS and eQTL p-values in the regions surrounding MMRN1 and SNCA. Spearman's rho (R) and associated p-value (p) are displayed in the plot. Dashed lines indicate genome-wide significance."}
+```{r psychencode-coloc-corr, fig.height = 6, fig.cap = "**Figure**: Scatter plot of GWAS and eQTL p-values in the regions surrounding MMRN1, SNCA and SNCA-AS1. Spearman's rho (R) and associated p-value (p) are displayed in the plot. Dashed lines indicate genome-wide significance."}
 
 # Shared SNPs between GWAS/eQTL
 eQTL_RBD_GWAS_joined <- readRDS("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/psychencode/RBD_psychencode_overlap.Rds")

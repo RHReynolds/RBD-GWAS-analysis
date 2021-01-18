@@ -18,7 +18,11 @@ library(data.table)
 library(devtools)
 library(ggpubr)
 library(tidyverse)
-devtools::load_all("/home/rreynolds/projects/MarkerGenes/")
+library(stringr)
+
+# To use MarkerGene package, clone from: https://github.com/RHReynolds/MarkerGenes
+path_to_markergenes_pkg <- "/home/rreynolds/projects/MarkerGenes/"
+devtools::load_all(path_to_markergenes_pkg) # Function for querying specificity matrices
 
 theme_rhr <-  theme_bw(base_family = "Helvetica") + 
   theme(panel.grid.major.x = element_blank(),
@@ -61,7 +65,7 @@ genes
 ```{r gtex-specificity, fig.height = 12, fig.cap="**Figure**: Specificity of MMRN1 and SNCA-AS1 in GTEx v8 tissues."}
 
 # Load specificity 
-gtex <- readRDS("/home/rreynolds/projects/MarkerGenes/specificity_df/GTEx_v8.Rds")
+gtex <- readRDS(str_c(path_to_markergenes_pkg, "specificity_df/GTEx_v8.Rds"))
 
 # Plot specificity
 gtex %>% 
@@ -98,11 +102,11 @@ gtex %>%
 ```{r load-snrna-specificity}
 
 # Load specificity matrices
-load("/home/rreynolds/projects/MarkerGenes/specificity_matrices/AIBS2018_MTG.rda")
-load("/home/rreynolds/projects/MarkerGenes/specificity_matrices/Habib2017_DroNc_Human.rda")
-load("/home/rreynolds/projects/MarkerGenes/specificity_matrices/Agarwal2020_CRTX.rda")
-load("/home/rreynolds/projects/MarkerGenes/specificity_matrices/Agarwal2020_SNIG.rda")
-load("/home/rreynolds/projects/MarkerGenes/specificity_matrices/Lake2018_FrontalCortexOnly.rda")
+load(str_c(path_to_markergenes_pkg, "specificity_matrices/AIBS2018_MTG.rda"))
+load(str_c(path_to_markergenes_pkg, "specificity_matrices/Habib2017_DroNc_Human.rda"))
+load(str_c(path_to_markergenes_pkg, "specificity_matrices/Agarwal2020_CRTX.rda"))
+load(str_c(path_to_markergenes_pkg, "specificity_matrices/Agarwal2020_SNIG.rda"))
+load(str_c(path_to_markergenes_pkg, "specificity_matrices/Lake2018_FrontalCortexOnly.rda"))
 
 specificity <- 
   MarkerGenes::query_gene_ctd(genes = genes,

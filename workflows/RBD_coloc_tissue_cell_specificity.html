@@ -376,7 +376,7 @@ genes</code></pre></div>
 </ul></li>
 </ul>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># Load specificity </span>
-gtex &lt;-<span class="st"> </span><span class="kw">readRDS</span>(<span class="st">&quot;/home/rreynolds/projects/MarkerGenes/specificity_df/GTEx_v8.Rds&quot;</span>)
+gtex &lt;-<span class="st"> </span><span class="kw">readRDS</span>(<span class="kw">str_c</span>(path_to_markergenes_pkg, <span class="st">&quot;specificity_df/GTEx_v8.Rds&quot;</span>))
 
 <span class="co"># Plot specificity</span>
 gtex <span class="op">%&gt;%</span><span class="st"> </span>
@@ -420,11 +420,11 @@ gtex <span class="op">%&gt;%</span><span class="st"> </span>
 <li>Cell-type specificity derived from a number of external datasets. All are based on single-nucleus RNA-sequencing. Notably, the AIBS dataset useds SMART-seq library construction (i.e. full-length sequencing of transcripts, as opposed to just 3'-end).</li>
 </ul>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># Load specificity matrices</span>
-<span class="kw">load</span>(<span class="st">&quot;/home/rreynolds/projects/MarkerGenes/specificity_matrices/AIBS2018_MTG.rda&quot;</span>)
-<span class="kw">load</span>(<span class="st">&quot;/home/rreynolds/projects/MarkerGenes/specificity_matrices/Habib2017_DroNc_Human.rda&quot;</span>)
-<span class="kw">load</span>(<span class="st">&quot;/home/rreynolds/projects/MarkerGenes/specificity_matrices/Agarwal2020_CRTX.rda&quot;</span>)
-<span class="kw">load</span>(<span class="st">&quot;/home/rreynolds/projects/MarkerGenes/specificity_matrices/Agarwal2020_SNIG.rda&quot;</span>)
-<span class="kw">load</span>(<span class="st">&quot;/home/rreynolds/projects/MarkerGenes/specificity_matrices/Lake2018_FrontalCortexOnly.rda&quot;</span>)
+<span class="kw">load</span>(<span class="kw">str_c</span>(path_to_markergenes_pkg, <span class="st">&quot;specificity_matrices/AIBS2018_MTG.rda&quot;</span>))
+<span class="kw">load</span>(<span class="kw">str_c</span>(path_to_markergenes_pkg, <span class="st">&quot;specificity_matrices/Habib2017_DroNc_Human.rda&quot;</span>))
+<span class="kw">load</span>(<span class="kw">str_c</span>(path_to_markergenes_pkg, <span class="st">&quot;specificity_matrices/Agarwal2020_CRTX.rda&quot;</span>))
+<span class="kw">load</span>(<span class="kw">str_c</span>(path_to_markergenes_pkg, <span class="st">&quot;specificity_matrices/Agarwal2020_SNIG.rda&quot;</span>))
+<span class="kw">load</span>(<span class="kw">str_c</span>(path_to_markergenes_pkg, <span class="st">&quot;specificity_matrices/Lake2018_FrontalCortexOnly.rda&quot;</span>))
 
 specificity &lt;-<span class="st"> </span>
 <span class="st">  </span>MarkerGenes<span class="op">::</span><span class="kw">query_gene_ctd</span>(<span class="dt">genes =</span> genes,
@@ -549,7 +549,7 @@ specificity <span class="op">%&gt;%</span><span class="st"> </span>
 ##  [31] gtable_0.3.0         glue_1.4.1           reshape2_1.4.4      
 ##  [34] rappdirs_0.3.1       Rcpp_1.0.5           carData_3.0-4       
 ##  [37] Biobase_2.46.0       cellranger_1.1.0     vctrs_0.3.2         
-##  [40] xfun_0.16            ps_1.3.4             openxlsx_4.1.5      
+##  [40] xfun_0.16            ps_1.3.4             openxlsx_4.2.3      
 ##  [43] testthat_2.3.2       rvest_0.3.6          lifecycle_0.2.0     
 ##  [46] rstatix_0.6.0        XML_3.99-0.3         MASS_7.3-51.4       
 ##  [49] scales_1.1.1         hms_0.5.3            parallel_3.6.1      

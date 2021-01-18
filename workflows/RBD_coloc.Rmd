@@ -18,6 +18,7 @@ library(coloc)          # Original coloc package, which is used to run coloc.abf
 library(colochelpR)     # Helper package with wrapper functions
 library(data.table)     # Loaded for fread(), which permits fast loading of files with many rows
 library(ggpubr)         # For formatting of plots
+library(here)           # For file path construction
 library(MafDb.1Kgenomes.phase3.hs37d5) # Stores MAFs from the Phase 3 of the 1000 Genomes Project for the human genome version hs37d5.
 library(tidyverse)      # For tidy manipulation of data
 
@@ -43,7 +44,7 @@ knitr::opts_chunk$set(echo = T, warning = F, message= F)
 
 ```{r tidy-GWAS, eval = F, class.source='fold-show'}
 
-source("/home/rreynolds/misc_projects/RBD-GWAS-analysis/R/tidy_GWAS.R")
+source(here::here("R", "tidy_GWAS.R"))
 RBD <- fread("/data/LDScore/GWAS/RBD2020/RBD2020.txt")
 
 # Tidy RBD GWAS
@@ -58,16 +59,16 @@ RBD_tidy_w_varbeta <-
   colochelpR::check_coloc_data_format(beta_or_pval = "beta", check_maf = F)
 
 # Save and gzip output
-write_delim(RBD_tidy_w_varbeta, path = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta.txt", delim = "\t")
-R.utils::gzip(filename = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta.txt", 
-              destname = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta.txt.gz",
+write_delim(RBD_tidy_w_varbeta, path = here::here("data", "RBD_tidy_varbeta.txt"), delim = "\t")
+R.utils::gzip(filename = here::here("data", "RBD_tidy_varbeta.txt"), 
+              destname = here::here("data", "RBD_tidy_varbeta.txt.gz"),
               remove = T)
 ```
 
 ```{r n-duplicate-snps, echo = F}
 
 RBD_tidy_w_varbeta <- 
-  fread("/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta.txt.gz") %>% 
+  fread(here::here("data", "RBD_tidy_varbeta.txt.gz")) %>% 
   as_tibble()
 
 n_duplicates <- 
@@ -128,9 +129,9 @@ RBD_tidy_w_varbeta <-
   dplyr::filter(beta != 0)
 
 # Save tidied output
-write_delim(RBD_tidy_w_varbeta, path = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta_noduplicates.txt", delim = "\t")
-R.utils::gzip(filename = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta_noduplicates.txt", 
-              destname = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta_noduplicates.txt.gz",
+write_delim(RBD_tidy_w_varbeta, path = here::here("data", "RBD_tidy_varbeta_noduplicates.txt"), delim = "\t")
+R.utils::gzip(filename = here::here("data", "RBD_tidy_varbeta_noduplicates.txt"), 
+              destname = here::here("data", "RBD_tidy_varbeta_noduplicates.txt.gz"),
               remove = T)
 
 ```
@@ -140,7 +141,7 @@ R.utils::gzip(filename = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/R
 ```{r show-tidy-GWAS, echo = F}
 
 RBD_tidy_w_varbeta <- 
-  fread("/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/RBD_tidy_varbeta_noduplicates.txt.gz") %>% 
+  fread(here::here("data", "RBD_tidy_varbeta_noduplicates.txt.gz")) %>% 
   as_tibble()
 
 # Significant hits
@@ -176,14 +177,14 @@ ensembl_gene_ids_overlapping_1Mb_window_hit <-
                          mart = 37)
 
 saveRDS(ensembl_gene_ids_overlapping_1Mb_window_hit, 
-        "/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/ensembl_gene_ids_overlapping_1Mb_window_hit.Rds")
+        here::here("data", "ensembl_gene_ids_overlapping_1Mb_window_hit.Rds"))
 
 ```
 
 ```{r genes-to-investigate-table, echo = F}
 
 ensembl_gene_ids_overlapping_1Mb_window_hit <-
-  readRDS("/home/rreynolds/misc_projects/RBD-GWAS-analysis/data/ensembl_gene_ids_overlapping_1Mb_window_hit.Rds")
+  readRDS(here::here("data", "ensembl_gene_ids_overlapping_1Mb_window_hit.Rds"))
 
 ensembl_gene_ids_overlapping_1Mb_window_hit %>% 
   dplyr::arrange(chromosome_name, start_position, end_position) %>% 
@@ -288,11 +289,11 @@ nohup Rscript /home/rreynolds/misc_projects/RBD-GWAS-analysis/scripts/coloc_RBD_
 ```{r load-results, eval = F}
 
 results_dir <- 
-  tibble(dir = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = T, pattern = ".rda") %>% 
+  tibble(dir = list.files(here::here("results"), recursive = T, full.names = T, pattern = ".rda") %>% 
            str_replace(., "/[^/]*$", "") %>% 
            str_replace(., "/[^/]*$", ""),
-         file_path = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = T, pattern = ".rda"),
-         file_name = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = F, pattern = ".rda") %>% 
+         file_path = list.files(here::here("results"), recursive = T, full.names = T, pattern = ".rda"),
+         file_name = list.files(here::here("results"), recursive = T, full.names = F, pattern = ".rda") %>% 
            str_replace(., ".rda", "")) %>% 
   tidyr::separate(file_name, into = c("dataset", "prior_type", "gene"), sep = "/", remove = F)
 
@@ -385,7 +386,7 @@ results <-
     
   }) 
 
-saveRDS(results, file = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/coloc_summary.Rds")
+saveRDS(results, file = here::here("results", "coloc_summary.Rds"))
   
 ```
 
@@ -394,7 +395,7 @@ saveRDS(results, file = "/home/rreynolds/misc_projects/RBD-GWAS-analysis/results
 
 ```{r filter-results, class.source='fold-show'}
 
-results <- readRDS("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/coloc_summary.Rds")
+results <- readRDS(here::here("results", "coloc_summary.Rds"))
 
 coloc <- 
   results %>% 
@@ -463,11 +464,11 @@ coloc_ens
 
 # Loading relevant files
 results_dir <- 
-  tibble(dir = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = T, pattern = ".rda") %>% 
+  tibble(dir = list.files(here::here("results"), recursive = T, full.names = T, pattern = ".rda") %>% 
            str_replace(., "/[^/]*$", "") %>% 
            str_replace(., "/[^/]*$", ""),
-         file_path = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = T, pattern = ".rda"),
-         file_name = list.files("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/", recursive = T, full.names = F, pattern = ".rda") %>% 
+         file_path = list.files(here::here("results"), recursive = T, full.names = T, pattern = ".rda"),
+         file_name = list.files(here::here("results"), recursive = T, full.names = F, pattern = ".rda") %>% 
            str_replace(., ".rda", "")) %>% 
   tidyr::separate(file_name, into = c("dataset", "prior_type", "gene"), sep = "/", remove = F) %>%
   dplyr::mutate(gene = str_split(gene, pattern = "_") %>% 
@@ -543,13 +544,13 @@ eQTL_RBD_GWAS_joined <-
   })
 
 # Save as Rds
-saveRDS(eQTL_RBD_GWAS_joined, "/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/eQTLGen/RBD_eQTLGen_overlap.Rds")
+saveRDS(eQTL_RBD_GWAS_joined, here::here("results", "eQTLGen", "RBD_eQTLGen_overlap.Rds"))
 
 ```
 
 ```{r eqtlgen-coloc-corr, fig.height = 6, fig.cap = "**Figure**: Scatter plot of GWAS and eQTL p-values in the regions surrounding MMRN1 and SNCA. Spearman's rho (R) and associated p-value (p) are displayed in the plot. Dashed lines indicated genome-wide significance."}
 
-eQTL_RBD_GWAS_joined <- readRDS("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/eQTLGen/RBD_eQTLGen_overlap.Rds")
+eQTL_RBD_GWAS_joined <- readRDS(here::here("results", "eQTLGen", "RBD_eQTLGen_overlap.Rds"))
 
 # Format data for plotting 
 eQTL_RBD_GWAS_to_plot <- 
@@ -685,14 +686,14 @@ eQTL_RBD_GWAS_joined <-
   })
 
 # Save as Rds
-saveRDS(eQTL_RBD_GWAS_joined, "/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/psychencode/RBD_psychencode_overlap.Rds")
+saveRDS(eQTL_RBD_GWAS_joined, here::here("results", "psychencode", "RBD_psychencode_overlap.Rds"))
 
 ```
 
 ```{r psychencode-coloc-corr, fig.height = 6, fig.cap = "**Figure**: Scatter plot of GWAS and eQTL p-values in the regions surrounding MMRN1, SNCA and SNCA-AS1. Spearman's rho (R) and associated p-value (p) are displayed in the plot. Dashed lines indicate genome-wide significance."}
 
 # Shared SNPs between GWAS/eQTL
-eQTL_RBD_GWAS_joined <- readRDS("/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/psychencode/RBD_psychencode_overlap.Rds")
+eQTL_RBD_GWAS_joined <- readRDS(here::here("results", "psychencode", "RBD_psychencode_overlap.Rds"))
 
 # Format data for plotting 
 eQTL_RBD_GWAS_to_plot <- 
@@ -819,6 +820,8 @@ harmonised_alleles <-
                 Al2_2 = case_when(SNP %in% SNPs_to_swap ~ Al2_1,
                                      TRUE ~ Al2_2))
 
+# saveRDS(harmonised_alleles, here::here("results", "psychencode", "RBD_SNCAAS1_beta_harmonised.Rds"))
+
 data_to_plot <- 
   harmonised_alleles %>% 
   tidyr::gather(key = "statistic", value = "value", beta_1, p.value_1, beta_2, p.value_2) %>% 
@@ -829,9 +832,6 @@ data_to_plot <-
   tidyr::spread(key = statistic, value = value) %>% 
   dplyr::mutate(significant_GWAS_SNP = case_when(SNP == "4:90755909" ~ TRUE,
                                                  TRUE ~ FALSE)) 
-
-# saveRDS(data_to_plot, "/home/rreynolds/misc_projects/RBD-GWAS-analysis/results/psychencode/RBD_SNCAAS1_beta_harmonised.Rds")
-
 data_to_plot %>% 
   ggplot(aes(x = beta, y = -log10(p.value))) + 
   geom_point(data = subset(data_to_plot, significant_GWAS_SNP == FALSE), colour = "#888888",

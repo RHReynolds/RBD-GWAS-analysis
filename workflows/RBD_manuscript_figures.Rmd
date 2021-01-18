@@ -3,7 +3,7 @@ title: "Manuscript figures"
 author: "Regina H. Reynolds"
 output: 
   html_document:
-    code_folding: show
+    code_folding: hide
     theme: paper
     highlight: kate
     df_print: paged
@@ -18,10 +18,447 @@ output:
 library(cowplot)          # For alignment of plots using axes
 library(DT)               # R interface to the JavaScript library DataTables
 library(ggpubr)           # For arranging plots in one panel
+library(here)             # For file path construction
 library(readxl)           # For loading excel workbooks
+library(openxlsx)         # For writing to excel workbooks
 library(tidyverse)        # For data manipulation
 library(stringr)          # For string manipulation
 library(qdapTools)        # For list manipulation
 
+# To use MarkerGene package, clone from: https://github.com/RHReynolds/MarkerGenes
+path_to_markergenes_pkg <- "/home/rreynolds/projects/MarkerGenes/"
+devtools::load_all(path_to_markergenes_pkg) # Function for querying specificity matrices
+
+
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
+
+# Paths for saving files
+```{r}
+
+path_for_figures <- here::here("manuscript", "figures/")
+path_for_tables <- here::here("manuscript", "tables/")
+
+```
+
+# Plotting functions
+
+```{r}
+source(here::here("R", "plotting_functions.R"))
+
+# Set base_size for plots
+theme_base_size <- 10
+theme_base_size_small <- 8
+
+```
+
+# Regional association plots
+
+## Loading data
+```{r}
+
+# All coloc results
+results <- readRDS(here::here("results", "coloc_summary.Rds"))
+
+# GWAS and eQTL points to plot
+plot_data <- setNames(vector(mode = "list", length = 2),
+                      c("eQTLGen", "psychencode"))
+
+plot_data[[1]] <- 
+  readRDS(here::here("results", "eQTLGen", "RBD_eQTLGen_overlap.Rds")) %>% 
+  qdapTools::list_df2df() %>% 
+  dplyr::select(SNP, gene = gene_2, pvalue_gwas = p.value_1, pvalue_eqtl = p.value_2) %>% 
+  dplyr::inner_join(results$robust %>% 
+                      dplyr::filter(dataset == "eQTLGen") %>% 
+                      dplyr::select(gene = gene_2, hgnc_symbol)) %>% 
+  tidyr::gather(key = "Dataset", value = "p.value", -SNP, -gene, -hgnc_symbol) %>% 
+  tidyr::separate(col = "SNP", into = c("chr", "pos")) %>% 
+  dplyr::mutate(pos_mb = as.numeric(pos)/1000000, 
+                p.value = as.numeric(p.value),
+                log_pval = -log10(p.value))
+
+plot_data[[2]] <- 
+  readRDS(here::here("results", "psychencode", "RBD_psychencode_overlap.Rds")) %>% 
+  qdapTools::list_df2df() %>% 
+  dplyr::select(SNP, gene = gene_2, pvalue_gwas = p.value_1, pvalue_eqtl = p.value_2) %>% 
+  dplyr::inner_join(results$robust %>% 
+                      dplyr::filter(dataset == "psychencode") %>% 
+                      dplyr::select(gene = gene_2, hgnc_symbol)) %>% 
+  tidyr::gather(key = "Dataset", value = "p.value", -SNP, -gene, -hgnc_symbol) %>% 
+  tidyr::separate(col = "SNP", into = c("chr", "pos")) %>% 
+  dplyr::mutate(pos_mb = as.numeric(pos)/1000000, 
+                p.value = as.numeric(p.value),
+                log_pval = -log10(p.value),
+                hgnc_symbol = case_when(gene == "ENSG00000247775" ~ "SNCA-AS1",
+                                        TRUE ~ hgnc_symbol))
+
+```
+
+## Plot
+
+```{r}
+
+fig_list <- vector(mode = "list", length = 2)
+
+plot_tibble <- 
+  tibble(dataset = c("eQTLGen", "psychencode"),
+         GWAS_label = rep("RBD GWAS", 2),
+         dataset_label = c("eQTLGen", "PsychENCODE"),
+         figure_label = letters[1:2])
+
+for(i in 1:nrow(plot_tibble)){
+  
+  fig_list[[i]] <- 
+    plot_coloc_hits(coloc_hits = results$robust %>%
+                      dplyr::filter(dataset == plot_tibble$dataset[i], PP.H4.abf >= 0.75) %>% 
+                      dplyr::arrange(hgnc_symbol) %>% 
+                      .[["gene_2"]],
+                    eQTL_GWAS_to_plot = plot_data[[i]], 
+                    facet_labels = c(pvalue_gwas = plot_tibble$GWAS_label[i], pvalue_eqtl = plot_tibble$dataset_label[i]),
+                    figure_labels = plot_tibble$figure_label[i],
+                    theme_base_size = theme_base_size) 
+  
+  
+}
+
+fig <- 
+  ggarrange(plotlist = fig_list,
+            align = "v",
+            ncol = 2, 
+            nrow = 1, 
+            common.legend = TRUE)
+
+fig
+
+```
+
+### Figure caption
+**Regional association plots for eQTL and RBD GWAS colocalisations.** Regional association plots for eQTL (upper pane) and RBD GWAS association signals (lower pane) in the regions surrounding **(a)** *MMRN1* (PPH4 = `r results$robust %>% dplyr::filter(dataset == "eQTLGen", hgnc_symbol == "MMRN1") %>% .[["PP.H4.abf"]] %>% round(digits = 2)`) and **(b)** *SNCA-AS1* (PPH4 = `r results$robust %>% dplyr::filter(dataset == "psychencode", gene_2 == "ENSG00000247775") %>% .[["PP.H4.abf"]] %>% round(digits = 2)`). eQTLs are derived from **(a)** the eQTLGen meta-analysis of 31,684 blood samples from 37 cohorts or **(b)** PsychENCODE's analysis of adult brain tissue from 1387 individuals. The x-axis denotes chromosomal position in hg19, and the y-axis indicates association p-values on a -log~10~ scale.
+
+## Supplementary figure
+```{r}
+
+supp_fig <- 
+  plot_coloc_hits(coloc_hits = results$robust %>%
+                    dplyr::filter(dataset == "psychencode", hgnc_symbol == "DLG5") %>% 
+                    dplyr::arrange(hgnc_symbol) %>% 
+                    .[["gene_2"]],
+                  eQTL_GWAS_to_plot = plot_data$psychencode, 
+                  facet_labels = c(pvalue_gwas = plot_tibble$GWAS_label[2], pvalue_eqtl = plot_tibble$dataset_label[2]),
+                  theme_base_size = theme_base_size) 
+
+supp_fig
+
+```
+
+**Regional association plot for eQTL and RBD GWAS colocalisation in the region surrounding *DLG5*.** Regional association plots for eQTL (upper pane) and RBD GWAS association signals (lower pane) in the regions surrounding *DLG5* (PPH4 = `r results$robust %>% dplyr::filter(dataset == "psychencode", hgnc_symbol == "DLG5") %>% .[["PP.H4.abf"]] %>% round(digits = 2)`). eQTLs are derived from PsychENCODE's analysis of adult brain tissue from 1387 individuals. The x-axis denotes chromosomal position in hg19, and the y-axis indicates association p-values on a -log~10~ scale.
+
+## Supplementary table
+```{r}
+
+supp_table <- setNames(vector(mode = "list", length = 2), 
+                       c("ColumnDescriptions", "Results"))
+
+supp_table[[2]] <- 
+  results %>% 
+  qdapTools::list_df2df(col1 = "prior_type") %>% 
+  dplyr::filter(prior_type == "robust", dataset %in% c("psychencode", "eQTLGen")) %>% 
+  dplyr::mutate(hgnc_symbol = case_when(gene_2 == "ENSG00000247775" ~ "SNCA-AS1",
+                                        TRUE ~ hgnc_symbol)) %>% 
+  dplyr::select(dataset, ensembl_id = gene_2, hgnc_symbol, 
+                PP_H0 = PP.H0.abf, PP_H1 = PP.H1.abf, PP_H2 = PP.H2.abf, PP_H3 = PP.H3.abf, PP_H4 = PP.H4.abf,
+                sum_PPH3_PPH4, ratio_PPH4_PPH3) %>% 
+  dplyr::arrange(dataset, ensembl_id)
+
+supp_table[[1]] <- 
+  tibble(`Column name` = colnames(supp_table[[2]]),
+         Description = c("eQTL dataset name",
+                         "Gene ensembl ID",
+                         "Gene HGNC symbol",
+                         "Posterior probability of hypothesis 0: No association with either trait",
+                         "Posterior probability of hypothesis 1: Association with trait 1, not with trait 2",
+                         "Posterior probability of hypothesis 2: Association with trait 2, not with trait 1",
+                         "Posterior probability of hypothesis 3: Association with trait 1 and trait 2, two independent SNPs",
+                         "Posterior probability of hypothesis 3: Association with trait 1 and trait 2, one shared SNP",
+                         "Sum of PP_H3 and PP_H4",
+                         "Ratio of PP_H4 to PP_H3"))
+
+```
+
+### Table caption
+**Results of colocalisation analysis using the RBD GWAS and eQTLs derived from eQTLGen and PsychENCODE.**
+
+## Export files
+```{r, eval = F}
+
+ggsave("figure_coloc.png", fig, device = "png", 
+       path = path_for_figures,
+       width = 180,  
+       height = 120,
+       units = "mm",
+       dpi = 300,
+       limitsize = TRUE)
+
+ggsave("figure_coloc.pdf", fig, device = "pdf", 
+       path = path_for_figures,
+       width = 180,  
+       height = 120,
+       units = "mm",
+       dpi = 300,
+       limitsize = TRUE)
+
+ggsave("supp_figure_coloc.png", supp_fig, device = "png", 
+       path = path_for_figures,
+       width = 90,  
+       height = 120,
+       units = "mm",
+       dpi = 300,
+       limitsize = TRUE)
+
+openxlsx::write.xlsx(supp_table, 
+                     file = str_c(path_for_tables, "supp_table_coloc.xlsx"),
+                     row.names = FALSE,
+                     headerStyle = openxlsx::createStyle(textDecoration = "BOLD"),
+                     firstRow = TRUE,
+                     append = TRUE)
+
+```
+
+# Coloc sensitivity analyses
+
+## Loading data
+```{r}
+
+# PPH4 decision rule
+pph4_decision <- 0.75
+
+# Paths to coloc files from which to plot sensitivity analyses
+plot_data <- 
+  tibble(dir = list.files(here::here("results"), recursive = T, full.names = T, pattern = ".rda") %>% 
+           str_replace(., "/[^/]*$", "") %>% 
+           str_replace(., "/[^/]*$", ""),
+         file_path = list.files(here::here("results"), recursive = T, full.names = T, pattern = ".rda"),
+         file_name = list.files(here::here("results"), recursive = T, full.names = F, pattern = ".rda") %>% 
+           str_replace(., ".rda", "")) %>% 
+  tidyr::separate(file_name, into = c("dataset", "prior_type", "gene"), sep = "/", remove = F) %>%
+  dplyr::mutate(gene = str_split(gene, pattern = "_") %>% 
+                  lapply(., function(x) x[str_detect(x, "ENSG")]) %>% unlist()) %>% 
+  dplyr::inner_join(results$robust %>% 
+                      dplyr::filter(PP.H4.abf >= pph4_decision | hgnc_symbol == "DLG5" & dataset == "psychencode") %>% 
+                      dplyr::mutate(hgnc_symbol = case_when(gene_2 == "ENSG00000247775" ~ "SNCA-AS1",
+                                                            TRUE ~ hgnc_symbol)) %>% 
+                      dplyr::distinct(gene_2, dataset, hgnc_symbol), by = c("gene" = "gene_2", "dataset")) %>% 
+  dplyr::filter(prior_type == "robust") %>% 
+  dplyr::arrange(dataset, hgnc_symbol)
+
+```
+
+## Plot
+```{r}
+for(i in 1:nrow(plot_data)){
+  
+  load(as.character(plot_data$file_path[i]))
+  
+  print(str_c(plot_data$hgnc_symbol[i], " - ", plot_data$gene[i]))
+  
+  png(file = str_c(path_for_figures, "supp_figure_", plot_data$dataset[i], "_", plot_data$hgnc_symbol[i], ".png"),
+      width = 180, 
+      height = 120,
+      units = "mm", 
+      res = 300)
+  
+  coloc::sensitivity(coloc_results_annotated, "H4 >= 0.75", plot.manhattans = F)
+  
+  dev.off()
+  
+}
+```
+
+### Figure caption
+
+#### MMRN1
+**Sensitivity analysis of *MMRN1* colocalisation.** Sensitivity analysis of colocalisation between eQTLGen-derived eQTLs regulating *MMRN1* expression and RBD GWAS signals. Plot of prior (left) and posterior (right) probabilities for H0-H4 across varying p~12~ priors. Dashed vertical line indicates the value of p~12~ used in the initial analysis (p~12~ = 5 x $10^{-6}$). The green region in these plots show the region for which PPH4 $\geq$ `r pph4_decision` would still be supported. 
+
+#### DLG5
+**Sensitivity analysis of *DLG5* colocalisation.** Sensitivity analysis of colocalisation between PscyhENCODE-derived eQTLs regulating *DLG5* expression and RBD GWAS signals. Plot of prior (left) and posterior (right) probabilities for H0-H4 across varying p~12~ priors. Dashed vertical line indicates the value of p~12~ used in the initial analysis (p~12~ = 5 x $10^{-6}$). The green region in these plots show the region for which PPH4 $\geq$ `r pph4_decision` would still be supported. 
+
+#### SNCA-AS1
+**Sensitivity analysis of *SNCA-AS1* colocalisation.** Sensitivity analysis of colocalisation between PscyhENCODE-derived eQTLs regulating *SNCA-AS1* expression and RBD GWAS signals. Plot of prior (left) and posterior (right) probabilities for H0-H4 across varying p~12~ priors. Dashed vertical line indicates the value of p~12~ used in the initial analysis (p~12~ = 5 x $10^{-6}$). The green region in these plots show the region for which PPH4 $\geq$ `r pph4_decision` would still be supported. 
+
+
+# SNCA-AS1 directionality
+
+## Loading data
+```{r}
+
+plot_data <- 
+  readRDS(here::here("results", "psychencode", "RBD_SNCAAS1_beta_harmonised.Rds")) %>% 
+  dplyr::rename(pvalue_gwas = p.value_1,
+                pvalue_eqtl = p.value_2,
+                beta_gwas = beta_1,
+                beta_eqtl = beta_2) %>% 
+  dplyr::mutate(genome_wide_signif = 
+                  case_when(pvalue_gwas < 5e-8 | pvalue_eqtl < 5e-8 ~ "TRUE",
+                                               TRUE ~ "FALSE") %>% 
+                  fct_relevel(., levels = c("TRUE", "FALSE"))) 
+
+```
+
+## Plot
+```{r}
+
+fig <- 
+  plot_data %>% 
+  ggplot(aes(x = beta_eqtl, y = beta_gwas)) +
+  geom_point(aes(colour = genome_wide_signif), alpha = 0.5) +
+  geom_smooth(method = "lm", level = 0.99, colour = "black", fill = "#EE442F") +
+  # ggpubr::stat_cor(method = "pearson", cor.coef.name = "R", label.sep = "\n") +
+  labs(x = "PscyhENCODE eQTL: beta coefficient", y = "RBD GWAS: beta coefficient") +
+  scale_colour_manual(values = c("#EE442F", "#888888"), 
+                      name = "Genome-wide significant?") +
+  theme_bw(base_size = theme_base_size) +
+  theme(legend.position = "top")
+
+fig
+
+```
+
+#### Figure caption
+**Association of RBD risk with SNCA-AS1 expression.** Scatterplot of beta coefficients for SNPs shared between the RBD GWAS and PsychENCODE eQTLs regulating *SNCA-AS1* expression. SNPs passing genome-wide significance (p = 5 x $10^{-8}$) in the RBD GWAS and/or PyschENCODE are indicated in red. The black line represents a linear model fitted for the beta coefficients from either dataset, with the 99% confidence interval indicated with a red fill. 
+
+## Export files
+```{r, eval = F}
+
+ggsave("supp_figure_betas.png", fig, device = "png", 
+       path = path_for_figures,
+       width = 140,  
+       height = 120,
+       units = "mm",
+       dpi = 300,
+       limitsize = TRUE)
+
+ggsave("supp_figure_betas.pdf", fig, device = "pdf", 
+       path = path_for_figures,
+       width = 140,  
+       height = 120,
+       units = "mm",
+       dpi = 300,
+       limitsize = TRUE)
+
+```
+
+
+# Tissue and cell-type specificity
+
+## Loading data
+```{r}
+
+load(str_c(path_to_markergenes_pkg, "specificity_matrices/AIBS2018_MTG.rda"))
+genes <- c("MMRN1", "SNCA-AS1")
+plot_data <- setNames(vector(mode = "list", length = 2),
+                      c("gtex", "aibs"))
+
+plot_data$gtex <- 
+  readRDS(str_c(path_to_markergenes_pkg, "specificity_df/GTEx_v8.Rds")) %>% 
+  dplyr::filter(Description %in% genes) %>%
+  dplyr::arrange(Description, -specificity)
+
+plot_data$aibs <- 
+  MarkerGenes::query_gene_ctd(genes = genes,
+                              ctd_AIBS2018, 
+                              celltypeLevel = 1, 
+                              median_included = F,
+                              genelistSpecies = "human", 
+                              ctdSpecies = "human")
+
+```
+
+## Plot
+```{r, fig.height = 8}
+
+fig_list <- setNames(vector(mode = "list", length = 2),
+                     c("gtex", "aibs"))
+
+fig_list$gtex <- 
+  plot_gtex_specificity(specificity = plot_data$gtex, 
+                        theme_base_size = theme_base_size_small)
+fig_list$aibs <- 
+  plot_aibs_specificity(specificity = plot_data$aibs, 
+                        theme_base_size = theme_base_size_small)
+
+fig <- 
+  plot_grid(plotlist = fig_list, 
+            nrow = 2,
+            align = "hv",
+            labels = letters[1:2],
+            rel_heights = c(4,1))
+
+fig
+
+```
+
+### Figure caption
+**Tissue and cell-type specificity of *MMRN1* and *SNCA-AS1*.** Plot of *MMRN1* and *SNCA-AS1* specificity in **(a)** 35 human tissues (GTEx dataset) and **(b)** 7 broad categories of cell type derived from human middle temporal gryus (AIBS dataset). Specificity represents the proportion of a gene’s total expression attributable to one cell type/tissue, with a value of 0 meaning a gene is not expressed in that cell type/tissue and a value of 1 meaning that a gene is only expressed in that cell type/tissue. In **(a)** tissues are coloured by whether they belong to the brain. In all plots, tissues and cell types have been ordered by specificity from high to low.
+
+## Supplementary table
+```{r}
+
+supp_table <- setNames(vector(mode = "list", length = 2), 
+                       c("ColumnDescriptions", "Results"))
+
+supp_table[[2]] <- 
+  plot_data$gtex %>% 
+  dplyr::mutate(Study = "GTEx") %>% 
+  dplyr::select(Study, Gene = Description, CellType_Tissue = Organ, Specificity = specificity, Mean_Expression = mean_expr) %>% 
+  dplyr::bind_rows(plot_data$aibs %>% 
+                     dplyr::mutate(Study = Study %>% 
+                                     str_replace(., "ctd_", "")) %>% 
+                     dplyr::select(Study, Gene, CellType_Tissue = CellType, Specificity, Mean_Expression))
+
+supp_table[[1]] <- 
+  tibble(`Column name` = colnames(supp_table[[2]]),
+         Description = c("Dataset from which specificity values were derived",
+                         "Gene HGNC symbol",
+                         "Cell type or tissue name",
+                         "Proportion of a gene's total expression attributable to one cell type or tissue",
+                         "Mean expression across a cell type or tissue"))
+
+
+```
+
+### Table caption
+**Specificity values of *MMRN1* and *SNCA-AS1* in GTEx and AIBS datasets.**
+
+## Export files
+```{r, eval = F}
+
+ggsave("figure_specificity.png", fig, device = "png", 
+       path = path_for_figures,
+       width = 180,  
+       height = 200,
+       units = "mm",
+       dpi = 300,
+       limitsize = TRUE)
+
+ggsave("figure_specificity.pdf", fig, device = "pdf", 
+       path = path_for_figures,
+       width = 180,  
+       height = 200,
+       units = "mm",
+       dpi = 300,
+       limitsize = TRUE)
+
+openxlsx::write.xlsx(supp_table, 
+                     file = str_c(path_for_tables, "supp_table_specificity.xlsx"),
+                     row.names = FALSE,
+                     headerStyle = openxlsx::createStyle(textDecoration = "BOLD"),
+                     firstRow = TRUE,
+                     append = TRUE)
+
+```
+
+# Session Info
+```{r}
+sessionInfo()
+```
+

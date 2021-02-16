@@ -1,6 +1,8 @@
 ---
 title: "Cell-type and tissue specificity"
-author: "Regina H. Reynolds"
+author: 
+- name: "Regina H. Reynolds"
+  affiliation: UCL
 output: 
   html_document:
     code_folding: hide

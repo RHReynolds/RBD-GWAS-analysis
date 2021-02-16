@@ -1,6 +1,8 @@
 ---
 title: 'RBD: coloc'
-author: "Regina H. Reynolds"
+author: 
+- name: "Regina H. Reynolds"
+  affiliation: UCL
 output: 
   html_document:
     code_folding: hide
@@ -521,7 +523,7 @@ eQTL <- fread(eQTL_path)
 # Tidy eQTL data
 eQTL_tidy_filtered <- 
   eQTL %>% 
-  dplyr::filter(Gene %in% c(coloc_ens$gene_2, "ENSG00000145335")) %>% 
+  dplyr::filter(Gene %in% c(coloc_ens$gene_2, "ENSG00000145335", "ENSG00000138760")) %>% 
   colochelpR::tidy_eQTL_eQTLGen() %>% 
   colochelpR::check_coloc_data_format(beta_or_pval = "pval", check_maf = F) %>% 
   dplyr::distinct(gene, SNP, .keep_all = TRUE)
@@ -664,7 +666,7 @@ colnames(eQTL) <- colnames(fread("/data/psychencode/DER-08a_hg19_eQTL.significan
 eQTL_tidy_filtered <- 
   eQTL %>% 
   colochelpR::tidy_eQTL_psychencode(., psychencode_SNP_info = SNP_info, add_colnames = F) %>% 
-  dplyr::filter(gene %in% c(coloc_ens$gene_2, "ENSG00000145335", "ENSG00000138722")) %>% 
+  dplyr::filter(gene %in% c(coloc_ens$gene_2, "ENSG00000145335", "ENSG00000138722", "ENSG00000138760")) %>% 
   colochelpR::check_coloc_data_format(beta_or_pval = "pval", check_maf = F) %>% 
   dplyr::distinct(gene, SNP, .keep_all = TRUE)
 

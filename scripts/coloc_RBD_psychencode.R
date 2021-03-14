@@ -16,7 +16,7 @@ mafdb <- MafDb.1Kgenomes.phase3.hs37d5
 
 GWAS_path <- "/data/LDScore/GWAS/RBD2020/RBD2020.txt"
 eQTL_path <- "/data/psychencode/Full_hg19_cis-eQTL.txt.gz"
-results_path <- "/home/rreynolds/misc_projects/RBD-GWAS-analysis/results"
+results_path <- here::here("results")
 
 #---GWAS--------------------------------------------------------------
 

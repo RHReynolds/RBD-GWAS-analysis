@@ -4,6 +4,7 @@ library(BSgenome)
 library(coloc)
 library(colochelpR)
 library(data.table)
+library(here)
 library(MafDb.1Kgenomes.phase3.hs37d5)
 library(tidyverse)
 
@@ -16,7 +17,7 @@ mafdb <- MafDb.1Kgenomes.phase3.hs37d5
 
 GWAS_path <- "/data/LDScore/GWAS/RBD2020/RBD2020.txt"
 eQTL_path <- "/data/eQTLGen/2019-12-11-cis-eQTLsFDR-ProbeLevel-CohortInfoRemoved-BonferroniAdded.txt.gz"
-results_path <- "/home/rreynolds/misc_projects/RBD-GWAS-analysis/results"
+results_path <- here::here("results")
 
 #---GWAS--------------------------------------------------------------
 

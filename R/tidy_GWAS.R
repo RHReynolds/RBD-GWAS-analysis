@@ -2,7 +2,7 @@
 #'
 #' @param GWAS df. RBD GWAS dataframe.
 #'
-#' @return Tidied LBD GWAS dataframe with appropriately named columns.
+#' @return Tidied RBD GWAS dataframe with appropriately named columns.
 #' 
 
 tidy_GWAS <- function(GWAS){

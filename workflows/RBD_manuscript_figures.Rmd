@@ -28,9 +28,10 @@ library(stringr) # For string manipulation
 library(qdapTools) # For list manipulation
 
 # To use MarkerGene package, clone from: https://github.com/RHReynolds/MarkerGenes
+path_to_ewce_pkg <- "/home/rreynolds/packages/EWCE/" # necessary due to issues with R versioning, see https://github.com/NathanSkene/EWCE
 path_to_markergenes_pkg <- "/home/rreynolds/projects/MarkerGenes/"
+devtools::load_all(path_to_ewce_pkg) # Function for querying specificity matrices
 devtools::load_all(path_to_markergenes_pkg) # Function for querying specificity matrices
-
 
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
@@ -52,7 +53,7 @@ theme_base_size <- 10
 theme_base_size_small <- 8
 ```
 
-# Regional association plots {.tabset}
+# Regional association plots and tissue/cell-type specificity  {.tabset}
 
 ## Loading data
 ```{r load-results}
@@ -64,36 +65,11 @@ results <-
 # GWAS and eQTL points to plot
 plot_data <- 
   setNames(
-    vector(mode = "list", length = 2),
-    c("eQTLGen", "psychencode")
+    vector(mode = "list", length = 4),
+    c("psychencode", "eQTLGen", "gtex", "aibs")
   )
 
 plot_data[[1]] <-
-  readRDS(here::here("results", "eQTLGen", "RBD_eQTLGen_overlap.Rds")) %>%
-  qdapTools::list_df2df() %>%
-  dplyr::select(
-    SNP, 
-    gene = gene_2, 
-    pvalue_gwas = p.value_1, 
-    pvalue_eqtl = p.value_2
-  ) %>%
-  dplyr::inner_join(
-    results$robust %>%
-      dplyr::filter(dataset == "eQTLGen") %>%
-      dplyr::select(gene = gene_2, hgnc_symbol)) %>%
-  tidyr::gather(
-    key = "Dataset", 
-    value = "p.value", 
-    -SNP, -gene, -hgnc_symbol
-  ) %>%
-  tidyr::separate(col = "SNP", into = c("chr", "pos")) %>%
-  dplyr::mutate(
-    pos_mb = as.numeric(pos) / 1000000,
-    p.value = as.numeric(p.value),
-    log_pval = -log10(p.value)
-  )
-
-plot_data[[2]] <-
   readRDS(here::here("results", "psychencode", "RBD_psychencode_overlap.Rds")) %>%
   qdapTools::list_df2df() %>%
   dplyr::select(
@@ -122,19 +98,64 @@ plot_data[[2]] <-
       TRUE ~ hgnc_symbol
     )
   )
+
+plot_data[[2]] <-
+  readRDS(here::here("results", "eQTLGen", "RBD_eQTLGen_overlap.Rds")) %>%
+  qdapTools::list_df2df() %>%
+  dplyr::select(
+    SNP, 
+    gene = gene_2, 
+    pvalue_gwas = p.value_1, 
+    pvalue_eqtl = p.value_2
+  ) %>%
+  dplyr::inner_join(
+    results$robust %>%
+      dplyr::filter(dataset == "eQTLGen") %>%
+      dplyr::select(gene = gene_2, hgnc_symbol)) %>%
+  tidyr::gather(
+    key = "Dataset", 
+    value = "p.value", 
+    -SNP, -gene, -hgnc_symbol
+  ) %>%
+  tidyr::separate(col = "SNP", into = c("chr", "pos")) %>%
+  dplyr::mutate(
+    pos_mb = as.numeric(pos) / 1000000,
+    p.value = as.numeric(p.value),
+    log_pval = -log10(p.value)
+  )
+  
+
+# Load necessary specificity matrices
+load(str_c(path_to_markergenes_pkg, "specificity_matrices/AIBS2018_MTG.rda"))
+genes <- c("MMRN1", "SNCA-AS1")
+
+plot_data$gtex <-
+  readRDS(str_c(path_to_markergenes_pkg, "specificity_df/GTEx_v8.Rds")) %>%
+  dplyr::filter(Description %in% genes) %>%
+  dplyr::arrange(Description, -specificity)
+
+plot_data$aibs <-
+  MarkerGenes::query_gene_ctd(
+    genes = genes,
+    ctd_AIBS2018,
+    celltypeLevel = 1,
+    median_included = F,
+    genelistSpecies = "human",
+    ctdSpecies = "human"
+  )
 ```
 
 ## Plot
 
-```{r plot-regional-assoc}
+```{r plot-regional-assoc-tissue-specificity, fig.height= 12}
 
-fig_list <- vector(mode = "list", length = 2)
+fig_list <- vector(mode = "list", length = 4)
 
 plot_tibble <-
   tibble(
-    dataset = c("eQTLGen", "psychencode"),
+    dataset = c("psychencode", "eQTLGen"),
     GWAS_label = rep("RBD GWAS", 2),
-    dataset_label = c("eQTLGen", "PsychENCODE"),
+    dataset_label = c("PsychENCODE", "eQTLGen"),
     figure_label = letters[1:2]
   )
 
@@ -159,20 +180,43 @@ for (i in 1:nrow(plot_tibble)) {
   
 }
 
+fig_list[[3]] <-
+  plot_gtex_specificity(
+    specificity = plot_data$gtex,
+    theme_base_size = theme_base_size_small
+  )
+
+fig_list[[4]] <-
+  plot_aibs_specificity(
+    specificity = plot_data$aibs,
+    theme_base_size = theme_base_size_small
+  )
+
 fig <-
   ggarrange(
-    plotlist = fig_list,
-    align = "v",
-    ncol = 2,
-    nrow = 1,
-    common.legend = TRUE
+    ggarrange(
+      plotlist = fig_list[1:2],
+      align = "v",
+      ncol = 2,
+      nrow = 1,
+      common.legend = TRUE
+    ),
+    ggarrange(
+      plotlist = fig_list[3:4],
+      nrow = 2,
+      align = "v",
+      labels = letters[3:4],
+      heights = c(3.5,1)
+    ),
+    nrow = 2,
+    heights = c(1,2)
   )
 
 fig
 ```
 
 ### Figure caption
-**Regional association plots for eQTL and RBD GWAS colocalisations.** Regional association plots for eQTL (upper pane) and RBD GWAS association signals (lower pane) in the regions surrounding **(a)** *MMRN1* (PPH4 = `r results$robust %>% dplyr::filter(dataset == "eQTLGen", hgnc_symbol == "MMRN1") %>% .[["PP.H4.abf"]] %>% round(digits = 2)`) and **(b)** *SNCA-AS1* (PPH4 = `r results$robust %>% dplyr::filter(dataset == "psychencode", gene_2 == "ENSG00000247775") %>% .[["PP.H4.abf"]] %>% round(digits = 2)`). eQTLs are derived from **(a)** the eQTLGen meta-analysis of 31,684 blood samples from 37 cohorts or **(b)** PsychENCODE's analysis of adult brain tissue from 1387 individuals. The x-axis denotes chromosomal position in hg19, and the y-axis indicates association p-values on a -log~10~ scale.
+**Regional association plots for eQTL and RBD GWAS colocalisations and tissue and cell-type specificity of *MMRN1* and *SNCA-AS1*.** Regional association plots for eQTL (upper pane) and RBD GWAS association signals (lower pane) in the regions surrounding **(a)** *SNCA-AS1* (PPH4 = `r results$robust %>% dplyr::filter(dataset == "psychencode", gene_2 == "ENSG00000247775") %>% .[["PP.H4.abf"]] %>% round(digits = 2)`) and **(b)** *MMRN1* (PPH4 = `r results$robust %>% dplyr::filter(dataset == "eQTLGen", hgnc_symbol == "MMRN1") %>% .[["PP.H4.abf"]] %>% round(digits = 2)`). eQTLs are derived from **(a)** PsychENCODE's analysis of adult brain tissue from 1387 individuals or **(b)** the eQTLGen meta-analysis of 31,684 blood samples from 37 cohorts. In **(a)** and **(b)**, the x-axis denotes chromosomal position in hg19, and the y-axis indicates association p-values on a -log~10~ scale. Plot of *MMRN1* and *SNCA-AS1* specificity in **(c)** 35 human tissues (GTEx dataset) and **(d)** 7 broad categories of cell type derived from human middle temporal gryus (AIBS dataset). Specificity represents the proportion of a gene’s total expression attributable to one cell type/tissue, with a value of 0 meaning a gene is not expressed in that cell type/tissue and a value of 1 meaning that a gene is only expressed in that cell type/tissue. In **(c)** tissues are coloured by whether they belong to the brain. In **(c)** and **(d)**, tissues and cell types have been ordered by specificity from high to low.
 
 ## Supplementary figure
 ```{r supp-plot-regional-assoc-scarb2}
@@ -181,10 +225,10 @@ fig_list <- vector(mode = "list", length = 2)
 
 plot_tibble <-
   tibble(
-    dataset = c("eQTLGen", "psychencode"),
+    dataset = c("psychencode", "eQTLGen"),
     GWAS_label = rep("RBD GWAS", 2),
-    dataset_label = c("eQTLGen", "PsychENCODE"),
-    figure_label = letters[1:2]
+    dataset_label = c("psychencode", "eQTLGen"),
+    figure_label = letters[2:1]
   )
 
 for (i in 1:nrow(plot_tibble)) {
@@ -210,7 +254,7 @@ for (i in 1:nrow(plot_tibble)) {
 
 supp_fig <-
   ggarrange(
-    plotlist = fig_list,
+    plotlist = fig_list[2:1],
     align = "v",
     ncol = 2,
     nrow = 1,
@@ -223,16 +267,16 @@ supp_fig
 ### Figure caption
 **Regional association plot for eQTL and RBD GWAS colocalisation in the region surrounding *SCARB2*.** Regional association plots for eQTL (upper pane) and RBD GWAS association signals (lower pane) in the region surrounding *SCARB2*, using eQTLs derived from **(a)** the eQTLGen meta-analysis of 31,684 blood samples from 37 cohorts (PPH3 = `r results$robust %>% dplyr::filter(dataset == "eQTLGen", hgnc_symbol == "SCARB2") %>% .[["PP.H3.abf"]] %>% round(digits = 2)`; PPH4 = `r results$robust %>% dplyr::filter(dataset == "eQTLGen", hgnc_symbol == "SCARB2") %>% .[["PP.H4.abf"]] %>% round(digits = 2)`) or **(b)** PsychENCODE's analysis of adult brain tissue from 1387 individuals (PPH3 = `r results$robust %>% dplyr::filter(dataset == "psychencode", hgnc_symbol == "SCARB2") %>% .[["PP.H3.abf"]] %>% round(digits = 2)`; PPH4 = `r results$robust %>% dplyr::filter(dataset == "psychencode", hgnc_symbol == "SCARB2") %>% .[["PP.H4.abf"]] %>% round(digits = 2)`). The x-axis denotes chromosomal position in hg19, and the y-axis indicates association p-values on a -log10 scale. eQTLs are derived from PsychENCODE's analysis of adult brain tissue from 1387 individuals. The x-axis denotes chromosomal position in hg19, and the y-axis indicates association p-values on a -log~10~ scale.
 
-## Supplementary table
+## Supplementary table: coloc
 ```{r supp-table-coloc}
 
-supp_table <- 
+supp_table_coloc <- 
   setNames(
     vector(mode = "list", length = 2),
     c("ColumnDescriptions", "Results")
   )
 
-supp_table[[2]] <-
+supp_table_coloc[[2]] <-
   results %>%
   qdapTools::list_df2df(col1 = "prior_type") %>%
   dplyr::filter(prior_type == "robust", dataset %in% c("psychencode", "eQTLGen")) %>%
@@ -249,9 +293,9 @@ supp_table[[2]] <-
   ) %>%
   dplyr::arrange(dataset, ensembl_id)
 
-supp_table[[1]] <-
+supp_table_coloc[[1]] <-
   tibble(
-    `Column name` = colnames(supp_table[[2]]),
+    `Column name` = colnames(supp_table_coloc[[2]]),
     Description = c(
       "eQTL dataset name",
       "Gene ensembl ID",
@@ -270,24 +314,57 @@ supp_table[[1]] <-
 ### Table caption
 **Results of colocalisation analysis using the RBD GWAS and eQTLs derived from eQTLGen and PsychENCODE.**
 
+## Supplementary table: tissue/cell-type specificity
+```{r supp-table-specificity}
+
+supp_table_specificity <- setNames(
+  vector(mode = "list", length = 2),
+  c("ColumnDescriptions", "Results")
+)
+
+supp_table_specificity[[2]] <-
+  plot_data$gtex %>%
+  dplyr::mutate(Study = "GTEx") %>%
+  dplyr::select(Study, Gene = Description, CellType_Tissue = Organ, Specificity = specificity, Mean_Expression = mean_expr) %>%
+  dplyr::bind_rows(plot_data$aibs %>%
+    dplyr::mutate(Study = Study %>%
+      str_replace(., "ctd_", "")) %>%
+    dplyr::select(Study, Gene, CellType_Tissue = CellType, Specificity, Mean_Expression))
+
+supp_table_specificity[[1]] <-
+  tibble(
+    `Column name` = colnames(supp_table_specificity[[2]]),
+    Description = c(
+      "Dataset from which specificity values were derived",
+      "Gene HGNC symbol",
+      "Cell type or tissue name",
+      "Proportion of a gene's total expression attributable to one cell type or tissue",
+      "Mean expression across a cell type or tissue"
+    )
+  )
+```
+
+### Table caption
+**Specificity values of *MMRN1* and *SNCA-AS1* in GTEx and AIBS datasets.**
+
 ## Export files
 ```{r export-coloc, eval = F}
 
-ggsave("figure_coloc.png", fig,
+ggsave("figure_coloc_specificity.png", fig,
   device = "png",
   path = path_for_figures,
   width = 180,
-  height = 120,
+  height = 270,
   units = "mm",
   dpi = 300,
   limitsize = TRUE
 )
 
-ggsave("figure_coloc.pdf", fig,
+ggsave("figure_coloc_specificity.pdf", fig,
   device = "pdf",
   path = path_for_figures,
   width = 180,
-  height = 120,
+  height = 270,
   units = "mm",
   dpi = 300,
   limitsize = TRUE
@@ -303,8 +380,16 @@ ggsave("supp_figure_coloc.png", supp_fig,
   limitsize = TRUE
 )
 
-openxlsx::write.xlsx(supp_table,
+openxlsx::write.xlsx(supp_table_coloc,
   file = str_c(path_for_tables, "supp_table_coloc.xlsx"),
+  row.names = FALSE,
+  headerStyle = openxlsx::createStyle(textDecoration = "BOLD"),
+  firstRow = TRUE,
+  append = TRUE
+)
+
+openxlsx::write.xlsx(supp_table_specificity,
+  file = str_c(path_for_tables, "supp_table_specificity.xlsx"),
   row.names = FALSE,
   headerStyle = openxlsx::createStyle(textDecoration = "BOLD"),
   firstRow = TRUE,
@@ -482,134 +567,6 @@ ggsave("supp_figure_betas.pdf", fig,
   units = "mm",
   dpi = 300,
   limitsize = TRUE
-)
-```
-
-
-# Tissue and cell-type specificity {.tabset}
-
-## Loading data
-```{r load-data-for-specificity}
-
-load(str_c(path_to_markergenes_pkg, "specificity_matrices/AIBS2018_MTG.rda"))
-genes <- c("MMRN1", "SNCA-AS1")
-plot_data <- setNames(
-  vector(mode = "list", length = 2),
-  c("gtex", "aibs")
-)
-
-plot_data$gtex <-
-  readRDS(str_c(path_to_markergenes_pkg, "specificity_df/GTEx_v8.Rds")) %>%
-  dplyr::filter(Description %in% genes) %>%
-  dplyr::arrange(Description, -specificity)
-
-plot_data$aibs <-
-  MarkerGenes::query_gene_ctd(
-    genes = genes,
-    ctd_AIBS2018,
-    celltypeLevel = 1,
-    median_included = F,
-    genelistSpecies = "human",
-    ctdSpecies = "human"
-  )
-```
-
-## Plot
-```{r plot-specificity, fig.height = 8}
-
-fig_list <- setNames(
-  vector(mode = "list", length = 2),
-  c("gtex", "aibs")
-)
-
-fig_list$gtex <-
-  plot_gtex_specificity(
-    specificity = plot_data$gtex,
-    theme_base_size = theme_base_size_small
-  )
-fig_list$aibs <-
-  plot_aibs_specificity(
-    specificity = plot_data$aibs,
-    theme_base_size = theme_base_size_small
-  )
-
-fig <-
-  plot_grid(
-    plotlist = fig_list,
-    nrow = 2,
-    align = "hv",
-    labels = letters[1:2],
-    rel_heights = c(4, 1)
-  )
-
-fig
-```
-
-### Figure caption
-**Tissue and cell-type specificity of *MMRN1* and *SNCA-AS1*.** Plot of *MMRN1* and *SNCA-AS1* specificity in **(a)** 35 human tissues (GTEx dataset) and **(b)** 7 broad categories of cell type derived from human middle temporal gryus (AIBS dataset). Specificity represents the proportion of a gene’s total expression attributable to one cell type/tissue, with a value of 0 meaning a gene is not expressed in that cell type/tissue and a value of 1 meaning that a gene is only expressed in that cell type/tissue. In **(a)** tissues are coloured by whether they belong to the brain. In all plots, tissues and cell types have been ordered by specificity from high to low.
-
-## Supplementary table
-```{r supp-table-specificity}
-
-supp_table <- setNames(
-  vector(mode = "list", length = 2),
-  c("ColumnDescriptions", "Results")
-)
-
-supp_table[[2]] <-
-  plot_data$gtex %>%
-  dplyr::mutate(Study = "GTEx") %>%
-  dplyr::select(Study, Gene = Description, CellType_Tissue = Organ, Specificity = specificity, Mean_Expression = mean_expr) %>%
-  dplyr::bind_rows(plot_data$aibs %>%
-    dplyr::mutate(Study = Study %>%
-      str_replace(., "ctd_", "")) %>%
-    dplyr::select(Study, Gene, CellType_Tissue = CellType, Specificity, Mean_Expression))
-
-supp_table[[1]] <-
-  tibble(
-    `Column name` = colnames(supp_table[[2]]),
-    Description = c(
-      "Dataset from which specificity values were derived",
-      "Gene HGNC symbol",
-      "Cell type or tissue name",
-      "Proportion of a gene's total expression attributable to one cell type or tissue",
-      "Mean expression across a cell type or tissue"
-    )
-  )
-```
-
-### Table caption
-**Specificity values of *MMRN1* and *SNCA-AS1* in GTEx and AIBS datasets.**
-
-## Export files
-```{r export-specificity, eval = F}
-
-ggsave("figure_specificity.png", fig,
-  device = "png",
-  path = path_for_figures,
-  width = 180,
-  height = 200,
-  units = "mm",
-  dpi = 300,
-  limitsize = TRUE
-)
-
-ggsave("figure_specificity.pdf", fig,
-  device = "pdf",
-  path = path_for_figures,
-  width = 180,
-  height = 200,
-  units = "mm",
-  dpi = 300,
-  limitsize = TRUE
-)
-
-openxlsx::write.xlsx(supp_table,
-  file = str_c(path_for_tables, "supp_table_specificity.xlsx"),
-  row.names = FALSE,
-  headerStyle = openxlsx::createStyle(textDecoration = "BOLD"),
-  firstRow = TRUE,
-  append = TRUE
 )
 ```
 

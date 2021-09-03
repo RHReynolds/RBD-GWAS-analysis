@@ -1,0 +1,47 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+
+# Background
+This repository contains scripts used to perform a colocalisation analysis using the REM sleep behavior disorder (RBD) GWAS and two eQTL datasets:
+
+- [eQTLGen](https://www.biorxiv.org/content/10.1101/447367v1.full)
+- [PsychENCODE](https://www.ncbi.nlm.nih.gov/pubmed/30545857)
+
+# Citation
+If you use any of the code or data from this repository, please cite our [paper]() (link to follow).
+
+# License
+The code in this repository is released under an MIT license. This repository is distributed in the hope that it will be useful to the wider community, but without any warranty of any kind. Please see the [LICENSE](LICENSE) file for more details. 
+
+# Code contents
+
+Scripts and results of analyses have been described in the following workflows:
+
+1. [RBD_coloc.Rmd](./docs/RBD_coloc.Rmd): `Rmd` detailing coloc set up and analysis of results. 
+2. [RBD_coloc_tissue_cell_specificity.Rmd](./docs/RBD_coloc_tissue_cell_specificity.Rmd): `Rmd` detailing tissue- and cell-type-specificity of genes identified by coloc.
+3. [RBD_manuscript_figures](./docs/RBD_manuscript_figures.Rmd): `Rmd` detailing code used to produce manuscript figures pertaining to coloc analyses.
+
+All can be view interactively at: [https://rhreynolds.github.io/RBD-GWAS-analysis/](https://rhreynolds.github.io/RBD-GWAS-analysis/)
+
+Within this repository you will otherwise find:
+
+| Directory | Description |
+| --------- | --------------------------------------------------------------------------- |
+| [docs](docs) | Contains all `.Rmd`s and their corresponding `.html`s describing analyses performed for this project. These can be view interactively at: [https://rhreynolds.github.io/RBD-GWAS-analysis/](https://rhreynolds.github.io/RBD-GWAS-analysis/)|
+| [logs](logs) | For any scripts that were run outside of an `.Rmd` (e.g. scripts from the [scripts](scripts) directory), a log file was recorded and can be accessed here. |
+| [manuscript](manuscript) | Figures and tables produced for the manuscript. |
+| [results](results) | Results from all analyses. |
+| [scripts](scripts) | Contains analysis scripts. Each script contains a one-line description and is also referenced in its corresponding `.Rmd`. |
+| [R](R)| Various functions called in [docs](docs) and [scripts](scripts). |

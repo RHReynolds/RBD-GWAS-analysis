@@ -1,3 +1,5 @@
+# Description: script to run coloc analyses using PsychENCODE
+
 #---Import data and libraries-----------------------------------------
 
 library(BSgenome)

@@ -1,3 +1,5 @@
+# Description: script to run coloc analyses using eQTLGen
+
 #---Import data and libraries-----------------------------------------
 
 library(BSgenome)

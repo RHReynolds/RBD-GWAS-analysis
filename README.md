@@ -4,12 +4,12 @@
 
 This repository contains scripts used to perform a colocalisation analysis using the REM sleep behavior disorder (RBD) GWAS and two eQTL datasets:
 
--   [eQTLGen](https://www.biorxiv.org/content/10.1101/447367v1.full)
+-   [eQTLGen](https://pubmed.ncbi.nlm.nih.gov/34475573/)
 -   [PsychENCODE](https://www.ncbi.nlm.nih.gov/pubmed/30545857)
 
 # Citation
 
-If you use any of the code or data from this repository, please cite our [paper]() (link to follow).
+If you use any of the code or data from this repository, please cite our [paper](https://www.medrxiv.org/content/10.1101/2021.09.08.21254232v2).
 
 # License
 

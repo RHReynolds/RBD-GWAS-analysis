@@ -9,7 +9,7 @@ This repository contains scripts used to perform a colocalisation analysis using
 
 # Citation
 
-If you use any of the code or data from this repository, please cite our [paper](https://www.medrxiv.org/content/10.1101/2021.09.08.21254232v2).
+If you use any of the code or data from this repository, please cite our [paper](https://www.medrxiv.org/content/10.1101/2021.09.08.21254232v2). Further, if you use any of the software used within this repository (e.g. `coloc`, `colochelpR`, etc.) please make sure to cite the software appropriately.
 
 # License
 
